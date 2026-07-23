@@ -1,0 +1,18 @@
+node_modules
+dist
+.env.local
+.env.*.local
+*.local
+
+# Editor
+.DS_Store
+.vscode/
+.idea/
+*.suo
+*.ntvs*
+*.njsproj
+*.sln
+*.sw?
+
+# Ralph automation runner (personal workflow files)
+/ralph/

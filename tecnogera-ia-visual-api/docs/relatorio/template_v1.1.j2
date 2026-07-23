@@ -1,0 +1,77 @@
+# Relatório de Inspeção Visual — Tecnogera
+
+**Checklist nº {{ checklist_id }}** · Filial {{ filial | default('não observado') }} · {{ data | default('não observado') }}
+
+---
+
+## 1. Identificação
+
+| Campo | Valor |
+|-------|-------|
+| Checklist ID | {{ checklist_id }} |
+| Data da inspeção | {{ data | default('não observado') }} |
+| Filial | {{ filial | default('não observado') }} |
+| Técnico responsável | {{ tecnico | default('não observado') }} |
+| Ordem de Serviço | {{ os_numero | default('não observado') }} |
+| Inspeção gerada por | IA Visual Tecnogera v1.1 (hybrid) |
+
+---
+
+## 2. Resumo executivo
+
+{{ resumo_executivo }}
+
+**Cobertura fotográfica:** {{ coverage_pct }}% ({{ n_valid }} de {{ total_obrigatorios | default(n_valid + n_inconclusive + n_excluded) }} obrigatórios)
+
+| Categoria | Quantidade |
+|-----------|----------:|
+| Válidos | {{ n_valid }} |
+| Inconclusivos | {{ n_inconclusive }} |
+| Excluídos | {{ n_excluded }} |
+
+---
+
+## 3. Campos inspecionados
+
+{% if valid_classifications %}
+| Campo | Confiança | Observação |
+|-------|----------:|------------|
+{% for cls in valid_classifications %}
+| {{ cls.field_name }} | {{ "%.0f" | format(cls.confidence * 100) }}% | {{ cls.observation }} |
+{% endfor %}
+{% else %}
+Nenhum campo classificado como válido nesta inspeção.
+{% endif %}
+
+---
+
+## 4. Inconclusivos
+
+{% if inconclusive_classifications %}
+| Campo | Arquivo | Confiança | Observação |
+|-------|---------|----------:|------------|
+{% for cls in inconclusive_classifications %}
+| {{ cls.field_name }} | {{ cls.image_filename }} | {{ "%.0f" | format(cls.confidence * 100) }}% | {{ cls.observation }} |
+{% endfor %}
+{% else %}
+Nenhuma foto inconclusiva nesta inspeção.
+{% endif %}
+
+---
+
+## 5. Recomendações
+
+{% for rec in recomendacoes %}
+{{ loop.index }}. {{ rec }}
+{% endfor %}
+
+---
+
+## 6. Limitações da análise
+
+Este relatório foi gerado por sistema automatizado (IA Visual Tecnogera v1.1 — modo hybrid) a
+partir das fotos enviadas no checklist nº {{ checklist_id }}. As limitações inerentes são:
+
+- A análise depende exclusivamente das fotos disponíveis; itens não fotografados não foram avaliados.
+- A qualidade da inspeção remota é proporcional à qualidade da evidência fotográfica.
+- Achados críticos devem ser confirmados por inspeção presencial antes da liberação do equipamento.

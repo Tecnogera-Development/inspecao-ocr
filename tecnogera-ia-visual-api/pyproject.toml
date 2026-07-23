@@ -1,0 +1,129 @@
+[build-system]
+requires = ["setuptools>=68", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "tecnogera-ia-visual-api"
+version = "0.1.0"
+description = "API do sistema de inspeção visual automatizada por IA — Tecnogera"
+readme = "README.md"
+requires-python = ">=3.11,<3.13"
+license = { text = "Proprietary" }
+authors = [{ name = "Win / Tecnogera" }]
+
+dependencies = [
+    "fastapi==0.115.5",
+    "python-multipart==0.0.20",
+    "uvicorn[standard]==0.32.1",
+    "pydantic==2.10.3",
+    "pydantic-settings==2.7.0",
+    "structlog==24.4.0",
+    "httpx==0.28.1",
+    "dropbox==12.0.2",
+    "pyyaml==6.0.2",
+    "weasyprint==63.1",
+    "markdown==3.7",
+    "Pillow>=10.0.0",
+    "sqlalchemy==2.0.36",
+    "alembic==1.14.0",
+    "anthropic==0.40.0",
+    "openai==1.68.0",
+    "tenacity==9.0.0",
+    "asyncpg==0.30.0",
+    "psycopg2-binary==2.9.10",
+    "bcrypt>=4.0.0",
+    "itsdangerous>=2.1.0",
+    "jinja2>=3.1.6",
+    "arq>=0.25.0,<1.0",
+]
+
+[project.optional-dependencies]
+dev = [
+    "pytest==8.3.4",
+    "pytest-asyncio==0.25.0",
+    "pytest-cov==6.0.0",
+    "ruff==0.8.4",
+    "mypy==1.13.0",
+    "types-requests==2.32.0.20241016",
+    "types-PyYAML==6.0.12.20240917",
+]
+
+[tool.setuptools.packages.find]
+where = ["."]
+include = ["app*"]
+
+[tool.setuptools.package-data]
+"app.profiles" = ["*.yaml"]
+
+[tool.ruff]
+line-length = 100
+target-version = "py311"
+extend-exclude = ["build", "dist", ".venv"]
+cache-dir = "/tmp/.ruff_cache"
+
+[tool.ruff.lint]
+select = [
+    "E", "W",   # pycodestyle
+    "F",         # pyflakes
+    "I",         # isort
+    "B",         # bugbear
+    "UP",        # pyupgrade
+    "N",         # pep8-naming
+    "S",         # bandit
+    "C4",        # comprehensions
+    "RET",       # return
+    "SIM",       # simplify
+    "TCH",       # type-checking
+]
+ignore = ["S101"]  # assert ok em testes
+
+[tool.ruff.lint.per-file-ignores]
+"tests/**" = ["S", "N", "TC001", "TC002", "TC003"]
+"app/routers/**" = ["B008"]  # padrão idiomático do FastAPI usar Depends() em defaults
+"app/models/**" = ["TC003"]  # Pydantic resolve anotações em runtime; imports não podem ir para TYPE_CHECKING
+
+[tool.ruff.format]
+quote-style = "double"
+
+[tool.mypy]
+python_version = "3.11"
+strict = true
+warn_unused_ignores = true
+show_error_codes = true
+plugins = ["pydantic.mypy"]
+cache_dir = "/tmp/.mypy_cache"
+
+[[tool.mypy.overrides]]
+module = "tests.*"
+disallow_untyped_decorators = false
+
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+asyncio_mode = "auto"
+addopts = [
+    "-ra",
+    "--strict-markers",
+    "--cov=app",
+    "--cov-report=term-missing",
+    "--cov-report=xml:/tmp/coverage.xml",
+    "--cov-fail-under=85",
+    "-o", "cache_dir=/tmp/.pytest_cache",
+]
+markers = [
+    "unit: testes unitários rápidos",
+    "integration: testes de integração com dependências reais",
+    "e2e: testes end-to-end do pipeline",
+]
+
+[tool.coverage.run]
+branch = true
+source = ["app"]
+data_file = "/tmp/.coverage"
+
+[tool.coverage.report]
+exclude_lines = [
+    "pragma: no cover",
+    "if TYPE_CHECKING:",
+    "raise NotImplementedError",
+]

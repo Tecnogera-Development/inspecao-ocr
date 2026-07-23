@@ -1,0 +1,508 @@
+# Perfis de equipamentos — campos obrigatórios por formulário Sisloc.
+#
+# Estrutura: um perfil por FORMULÁRIO Sisloc (não por tipo de equipamento).
+# O conjunto de campos `cN` é definido pelo formulário (F013, F180, etc.).
+#
+# Cobertura dos 5 perfis no parque TECG (316 geradores Tecnogera):
+#   F013 liberação      —     ┐ dataset original: 7 amostras (POPULADO)
+#   F180 visita        25%   │ dataset original: 2 amostras (PRELIMINAR)
+#   F262 preventiva    23%   │ aguardando dataset estratificado
+#   F193 corretiva     10%   │ aguardando dataset estratificado
+#   F098 instalação     3%   │ aguardando dataset estratificado
+#   F116 alternador     5%   ┘ aguardando dataset estratificado
+#
+# Nota: F013 não apareceu no dump de 316 TECG "ativos" pois a view
+# dbo.checklist_produto tinha filtro que excluía checklists de liberação.
+# Corrigido pela equipe Sisloc em 2026-05-19. F013 está ativo.
+#
+# FORA DE ESCOPO IA (sem fotos — filtrar antes do Modelo 1):
+#   F267 PREVENTIVA S/ FOTO   6%
+#   F268 CORRETIVA S/ FOTO    1%
+#   F088 RELATÓRIO DIÁRIO     <1%
+#
+# 13% dos checklists no DB têm formulário VAZIO — pipeline trata como
+# "desconhecido" e cai em fallback (cluster por assinatura de campos).
+#
+# Thresholds: obrigatório ≥ 6/N (86%), comum ≥ 5/N (71%).
+# Descrições `cN` pendentes: aguardando resposta do Edelmar sobre tabela
+# formulario_campo no Sisloc. Enquanto isso, usar Vision LLM probing.
+
+profiles:
+
+  # ───────────────────────────────────────────────────────────────────────
+  # F013 — LIBERAÇÃO DE GERADOR (checklist pré-locação completo)
+  # ───────────────────────────────────────────────────────────────────────
+  # 7 amostras reais. Thresholds: obrigatório ≥6/7, comum ≥5/7.
+  # Fonte: dataset IAVS-005 (267699, 269762, 276800, 277861, 278139,
+  #        278154, 278365). Todos patrimônio TECG, filiais SP-SBC e MG-CGE.
+  # Descrições TODO aguardam dicionário Sisloc (Edelmar) ou Vision LLM.
+  F013_liberacao_gerador:
+    descricao: "Liberação de gerador pré-locação — checklist completo (Sisloc F013 - LIBERAÇÃO DE GERADOR)"
+    campos:
+      # --- OBRIGATÓRIOS 7/7 ---
+      - field_name: c0
+        legivel: Painel frontal e identificação
+        descricao: "Vista frontal do painel com tag e horímetro legíveis."
+        obrigatorio: true
+        comum: false
+      - field_name: c3
+        legivel: Campo c3
+        descricao: "TODO"
+        obrigatorio: true
+        comum: false
+      - field_name: c4
+        legivel: Campo c4
+        descricao: "TODO"
+        obrigatorio: true
+        comum: false
+      - field_name: c6
+        legivel: Campo c6
+        descricao: "TODO"
+        obrigatorio: true
+        comum: false
+      - field_name: c33
+        legivel: Campo c33
+        descricao: "TODO"
+        obrigatorio: true
+        comum: false
+      - field_name: c38
+        legivel: Campo c38
+        descricao: "TODO"
+        obrigatorio: true
+        comum: false
+      - field_name: c39
+        legivel: Campo c39
+        descricao: "TODO"
+        obrigatorio: true
+        comum: false
+      - field_name: c55
+        legivel: Campo c55
+        descricao: "TODO"
+        obrigatorio: true
+        comum: false
+      - field_name: c57
+        legivel: Painel elétrico de comando
+        descricao: "Painel aberto evidenciando disjuntores e cablagem."
+        obrigatorio: true
+        comum: false
+      - field_name: c60
+        legivel: Estrutura e cabine
+        descricao: "Estrutura externa, cabine acústica e fixações."
+        obrigatorio: true
+        comum: false
+      - field_name: c71
+        legivel: Campo c71
+        descricao: "TODO"
+        obrigatorio: true
+        comum: false
+      - field_name: c80
+        legivel: Aterramento
+        descricao: "Cabo e haste de aterramento conectados ao chassi."
+        obrigatorio: true
+        comum: false
+      - field_name: c81
+        legivel: Campo c81
+        descricao: "TODO"
+        obrigatorio: true
+        comum: false
+      - field_name: c82
+        legivel: Campo c82
+        descricao: "TODO"
+        obrigatorio: true
+        comum: false
+      - field_name: c83
+        legivel: Campo c83
+        descricao: "TODO"
+        obrigatorio: true
+        comum: false
+      - field_name: c88
+        legivel: Campo c88
+        descricao: "TODO"
+        obrigatorio: true
+        comum: false
+      - field_name: c89
+        legivel: Campo c89
+        descricao: "TODO"
+        obrigatorio: true
+        comum: false
+      - field_name: c93
+        legivel: Campo c93
+        descricao: "TODO"
+        obrigatorio: true
+        comum: false
+      - field_name: c95
+        legivel: Campo c95
+        descricao: "TODO"
+        obrigatorio: true
+        comum: false
+      - field_name: c107
+        legivel: Campo c107
+        descricao: "TODO"
+        obrigatorio: true
+        comum: false
+      - field_name: c108
+        legivel: Campo c108
+        descricao: "TODO"
+        obrigatorio: true
+        comum: false
+      - field_name: c145
+        legivel: Campo c145
+        descricao: "TODO"
+        obrigatorio: true
+        comum: false
+      - field_name: c166
+        legivel: Campo c166
+        descricao: "TODO"
+        obrigatorio: true
+        comum: false
+      - field_name: c167
+        legivel: Campo c167
+        descricao: "TODO"
+        obrigatorio: true
+        comum: false
+      - field_name: c187
+        legivel: Campo c187
+        descricao: "TODO"
+        obrigatorio: true
+        comum: false
+      - field_name: c227
+        legivel: Campo c227
+        descricao: "TODO"
+        obrigatorio: true
+        comum: false
+      - field_name: c228
+        legivel: Campo c228
+        descricao: "TODO"
+        obrigatorio: true
+        comum: false
+      # --- OBRIGATÓRIOS 6/7 ---
+      - field_name: c50
+        legivel: Campo c50
+        descricao: "TODO"
+        obrigatorio: true
+        comum: false
+      - field_name: c53
+        legivel: Campo c53
+        descricao: "TODO"
+        obrigatorio: true
+        comum: false
+      - field_name: c85
+        legivel: Campo c85
+        descricao: "TODO"
+        obrigatorio: true
+        comum: false
+      - field_name: c109
+        legivel: Campo c109
+        descricao: "TODO"
+        obrigatorio: true
+        comum: false
+      - field_name: c229
+        legivel: Campo c229
+        descricao: "TODO"
+        obrigatorio: true
+        comum: false
+      # --- COMUNS 5/7 ---
+      - field_name: c5
+        legivel: Campo c5
+        descricao: "TODO — ausente em F013 vs presente em F180 visita"
+        obrigatorio: false
+        comum: true
+      - field_name: c12
+        legivel: Campo c12
+        descricao: "TODO"
+        obrigatorio: false
+        comum: true
+      - field_name: c175
+        legivel: Campo c175
+        descricao: "TODO"
+        obrigatorio: false
+        comum: true
+      - field_name: c194
+        legivel: Campo c194
+        descricao: "TODO"
+        obrigatorio: false
+        comum: true
+      - field_name: c195
+        legivel: Campo c195
+        descricao: "TODO"
+        obrigatorio: false
+        comum: true
+      - field_name: c230
+        legivel: Campo c230
+        descricao: "TODO"
+        obrigatorio: false
+        comum: true
+      - field_name: c231
+        legivel: Campo c231
+        descricao: "TODO"
+        obrigatorio: false
+        comum: true
+      - field_name: c234
+        legivel: Campo c234
+        descricao: "TODO"
+        obrigatorio: false
+        comum: true
+      - field_name: c236
+        legivel: Campo c236
+        descricao: "TODO"
+        obrigatorio: false
+        comum: true
+      - field_name: c237
+        legivel: Campo c237
+        descricao: "TODO"
+        obrigatorio: false
+        comum: true
+      - field_name: c238
+        legivel: Campo c238
+        descricao: "TODO"
+        obrigatorio: false
+        comum: true
+
+  # ───────────────────────────────────────────────────────────────────────
+  # F180 — VISITA GMG (25% do parque)
+  # ───────────────────────────────────────────────────────────────────────
+  # ⚠️ Apenas 2 amostras (278724 TECG01728, 278749 TECG01364) — thresholds
+  # NÃO confiáveis. Campos listados são os observados em ambas as amostras.
+  # F180 é flexível: técnico foto o que encontra em campo — alta variância
+  # esperada. 278724 teve 22 campos, 278749 teve 12 campos (mesmo formulário).
+  F180_visita_gmg:
+    descricao: "Visita técnica em GMG durante locação (Sisloc F180-VISITA GMG_REV04)"
+    campos:
+      # --- Presentes em 2/2 amostras (core da visita) ---
+      - field_name: c0
+        legivel: Painel frontal e identificação
+        descricao: "Vista frontal do painel com tag e horímetro legíveis."
+        obrigatorio: true
+        comum: false
+      - field_name: c6
+        legivel: Campo c6
+        descricao: "TODO"
+        obrigatorio: true
+        comum: false
+      - field_name: c5
+        legivel: Campo c5
+        descricao: "TODO — presente em F180 visita, raro em F013 liberação"
+        obrigatorio: false
+        comum: true
+      - field_name: c9
+        legivel: Campo c9
+        descricao: "TODO — exclusivo de F180 (não aparece em F013)"
+        obrigatorio: false
+        comum: true
+      - field_name: c15
+        legivel: Campo c15
+        descricao: "TODO — exclusivo de F180"
+        obrigatorio: false
+        comum: true
+      - field_name: c51
+        legivel: Campo c51
+        descricao: "TODO — exclusivo de F180"
+        obrigatorio: false
+        comum: true
+      - field_name: c140
+        legivel: Campo c140
+        descricao: "TODO — exclusivo de F180"
+        obrigatorio: false
+        comum: true
+      # --- Presentes em 1/2 (só 278724 ou só 278749) ---
+      - field_name: c1
+        legivel: Campo c1
+        descricao: "TODO — só 278724"
+        obrigatorio: false
+        comum: false
+      - field_name: c16
+        legivel: Campo c16
+        descricao: "TODO — só 278724"
+        obrigatorio: false
+        comum: false
+      - field_name: c31
+        legivel: Campo c31
+        descricao: "TODO — só 278724"
+        obrigatorio: false
+        comum: false
+      - field_name: c45
+        legivel: Campo c45
+        descricao: "TODO — só 278724"
+        obrigatorio: false
+        comum: false
+      - field_name: c46
+        legivel: Campo c46
+        descricao: "TODO — só 278724"
+        obrigatorio: false
+        comum: false
+      - field_name: c47
+        legivel: Campo c47
+        descricao: "TODO — só 278724"
+        obrigatorio: false
+        comum: false
+      - field_name: c48
+        legivel: Campo c48
+        descricao: "TODO — só 278724"
+        obrigatorio: false
+        comum: false
+      - field_name: c49
+        legivel: Campo c49
+        descricao: "TODO — só 278724"
+        obrigatorio: false
+        comum: false
+      - field_name: c52
+        legivel: Campo c52
+        descricao: "TODO — só 278724"
+        obrigatorio: false
+        comum: false
+      - field_name: c105
+        legivel: Campo c105
+        descricao: "TODO — só 278724"
+        obrigatorio: false
+        comum: false
+      - field_name: c130
+        legivel: Campo c130
+        descricao: "TODO — só 278724"
+        obrigatorio: false
+        comum: false
+      - field_name: c139
+        legivel: Campo c139
+        descricao: "TODO — só 278724"
+        obrigatorio: false
+        comum: false
+      - field_name: c146
+        legivel: Campo c146
+        descricao: "TODO — só 278724"
+        obrigatorio: false
+        comum: false
+      - field_name: c163
+        legivel: Campo c163
+        descricao: "TODO — só 278724"
+        obrigatorio: false
+        comum: false
+      - field_name: c53
+        legivel: Campo c53
+        descricao: "TODO — só 278749"
+        obrigatorio: false
+        comum: false
+      - field_name: c54
+        legivel: Campo c54
+        descricao: "TODO — só 278749"
+        obrigatorio: false
+        comum: false
+      - field_name: c55
+        legivel: Campo c55
+        descricao: "TODO — só 278749"
+        obrigatorio: false
+        comum: false
+      - field_name: c56
+        legivel: Campo c56
+        descricao: "TODO — só 278749"
+        obrigatorio: false
+        comum: false
+      - field_name: c135
+        legivel: Campo c135
+        descricao: "TODO — só 278749"
+        obrigatorio: false
+        comum: false
+
+  # ───────────────────────────────────────────────────────────────────────
+  # F262 — PREVENTIVA GMG (23% do parque)
+  # ───────────────────────────────────────────────────────────────────────
+  # Manutenção preventiva com registro fotográfico.
+  # ⚠️ Sem amostra ainda — aguardando dataset estratificado do Célio.
+  F262_preventiva_gmg:
+    descricao: "Preventiva em GMG com registro fotográfico (Sisloc F262 - PREVENTIVA GMG_REV00)"
+    campos: []
+    # TODO — pedir ao Célio ≥10 checklists F262 reais; após download,
+    # rodar catalog_checklists para extrair códigos `cN`, depois Vision LLM
+    # probing para descrição humana.
+
+  # ───────────────────────────────────────────────────────────────────────
+  # F193 — CORRETIVA GMG (10% do parque)
+  # ───────────────────────────────────────────────────────────────────────
+  # Manutenção corretiva (falha/defeito) com fotos das ocorrências.
+  # CRÍTICO PARA MODELO 2: aqui aparecem fotos de avarias/anomalias —
+  # essencial para treinar avaliação de qualidade visual.
+  # ⚠️ Sem amostra ainda.
+  F193_corretiva_gmg:
+    descricao: "Corretiva em GMG após falha/defeito (Sisloc F193-CORRETIVA GMG_REV02)"
+    campos: []
+    # TODO — pedir ao Célio ≥8 checklists F193 reais. Priorizar para
+    # Modelo 2 (avaliação de qualidade), pois contém imagens de
+    # anomalias/avarias que precisam ser detectadas.
+
+  # ───────────────────────────────────────────────────────────────────────
+  # F098 — INSTALAÇÃO GMG (3% do parque, alto valor unitário)
+  # ───────────────────────────────────────────────────────────────────────
+  # Checklist de instalação inicial em obra. Costuma ser o mais extenso —
+  # IA tem maior alavancagem aqui (mais campos = mais ROI por automação).
+  # ⚠️ Sem amostra ainda.
+  F098_instalacao_gmg:
+    descricao: "Instalação inicial de GMG em obra (Sisloc F098-INSTALAÇÃO GMG_REV05)"
+    campos: []
+    # TODO — pedir ao Célio ≥5 checklists F098 reais. Atenção à
+    # diferença entre F098 (instalação atual) e F038 (pré-locação) e
+    # F013 (liberação — possivelmente descontinuado).
+
+  # ───────────────────────────────────────────────────────────────────────
+  # F116 — CHECKLIST DE ALTERNADOR (5% do parque)
+  # ───────────────────────────────────────────────────────────────────────
+  # Inspeção focada no alternador (componente específico do GMG).
+  # Vocabulário visual diferente dos perfis "gerador inteiro" —
+  # close-ups de bobina, escovas, anéis coletores, etc.
+  # ⚠️ Sem amostra ainda.
+  F116_checklist_alternador:
+    descricao: "Inspeção focada no alternador do GMG (Sisloc F116 - CHECKLIST DE ALTERNADOR)"
+    campos: []
+    # TODO — pedir ao Célio ≥5 checklists F116 reais. Modelo 1 precisa
+    # distinguir este perfil (close-ups de componente) dos perfis
+    # "gerador completo" (vistas panorâmicas + painéis).
+
+  # ───────────────────────────────────────────────────────────────────────
+  # _unknown_fallback — PERFIL SENTINEL (formulário desconhecido / não populado)
+  # ───────────────────────────────────────────────────────────────────────
+  # Usado quando o formulário Sisloc do checklist não está mapeado em nenhum
+  # perfil populado (F013 é o único populado no MVP). Representa 13% dos
+  # checklists com formulário VAZIO + formulários raros sem dataset.
+  #
+  # As 5 super-classes são agnósticas a formulário — permitem classificação
+  # visual genérica útil mesmo sem ground truth de campo. Todas as
+  # classificações via este perfil recebem requires_human_review=True.
+  _unknown_fallback:
+    descricao: "Perfil sentinel para formulário desconhecido — classificação em super-classes visuais genéricas"
+    campos:
+      - field_name: painel_display
+        legivel: Painel / Display
+        descricao: "Painel de controle, display digital, indicadores e instrumentos de medição."
+        obrigatorio: false
+        comum: true
+      - field_name: conexao_eletrica
+        legivel: Conexão elétrica
+        descricao: "Cabos, bornes, conectores, disjuntores e qualquer componente elétrico de interface."
+        obrigatorio: false
+        comum: true
+      - field_name: estrutura_externa
+        legivel: Estrutura externa
+        descricao: "Chassi, cabine acústica, laterais, portas e fixações externas do equipamento."
+        obrigatorio: false
+        comum: true
+      - field_name: componente_mecanico
+        legivel: Componente mecânico
+        descricao: "Motor, alternador, filtros, correias, polias e componentes internos mecânicos."
+        obrigatorio: false
+        comum: true
+      - field_name: etiqueta_documento
+        legivel: Etiqueta / Documento
+        descricao: "Tag patrimonial, etiqueta de identificação, plaqueta de dados e documentos afixados."
+        obrigatorio: false
+        comum: true
+
+# ─────────────────────────────────────────────────────────────────────────
+# Formulários FORA DE ESCOPO DA IA visual (sem fotos):
+#   F267 - PREVENTIVA S/ FOTO_REV00
+#   F268 - CORRETIVA S/ FOTO_REV00
+#   F088 - RELATÓRIO DIÁRIO DE OBRA
+# Pipeline deve filtrar estes formulários ANTES do Modelo 1 (classificação)
+# para não desperdiçar chamadas de API. Roteamento sugerido: registrar
+# como "ignorado_sem_foto" e gerar relatório administrativo direto via
+# Modelo 3 (texto puro, sem análise visual).
+#
+# Long tail (popular sob demanda): F254, F269, F315, F327, F281, F270,
+# F316, F284, F038, F013 (legacy?). Estratégia: cluster por assinatura
+# de campos `cN` quando aparecerem, depois bootstrap.

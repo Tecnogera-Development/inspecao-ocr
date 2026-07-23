@@ -1,0 +1,58 @@
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+*.egg-info/
+.pytest_cache/
+.ruff_cache/
+.mypy_cache/
+.coverage
+.coverage.*
+htmlcov/
+coverage.xml
+
+# Virtual envs
+.venv/
+venv/
+env/
+
+# Environment
+.env
+.env.*
+!.env.example
+!.env.deploy.example
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Build / dist
+build/
+dist/
+*.whl
+
+# Logs
+*.log
+logs/
+
+# Local data
+/tmp/
+/data/
+checklists_local/
+
+# Local planning (PRD + issues, kept out of repo)
+/issues/
+
+# Ralph automation runner (personal workflow files)
+/ralph/
+
+# Docker
+.docker/

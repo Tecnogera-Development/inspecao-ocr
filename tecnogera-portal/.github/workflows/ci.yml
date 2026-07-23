@@ -1,0 +1,52 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+jobs:
+  ci:
+    runs-on: ubuntu-latest
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: pnpm/action-setup@v4
+        with:
+          version: 9
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: pnpm
+
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+
+      - name: Regenerate API types
+        env:
+          OPENAPI_URL: ${{ vars.OPENAPI_URL || 'https://raw.githubusercontent.com/gui-queiroz/tecnogera/main/openapi.json' }}
+        run: pnpm gen:types
+        continue-on-error: true
+
+      - name: Verify types are up-to-date
+        run: |
+          if ! git diff --exit-code src/api/types.ts; then
+            echo "::error::src/api/types.ts is out of date. Run 'pnpm gen:types' locally and commit the result."
+            exit 1
+          fi
+        # Skip drift check when OPENAPI_URL is unreachable (continue-on-error above)
+        if: ${{ success() }}
+
+      - name: Typecheck
+        run: pnpm typecheck
+
+      - name: Lint
+        run: pnpm lint
+
+      - name: Test
+        run: pnpm test
+
+      - name: Build
+        run: pnpm build
