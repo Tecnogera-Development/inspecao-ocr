@@ -10,12 +10,13 @@ from __future__ import annotations
 
 from typing import TYPE_CHECKING
 
+import secrets
 import uuid
 
 from fastapi import APIRouter, Depends, Header, HTTPException, Request
 from pydantic import BaseModel
 
-from app.core.config import Settings, get_settings
+from app.core.config import AppEnv, Settings, get_settings
 from app.core.logging import get_logger
 from app.db.session import get_db
 from app.services.damage_evaluator import DamageEvaluator
@@ -34,10 +35,16 @@ def _verify_api_key(
     x_api_key: str | None = Header(default=None),
     settings: Settings = Depends(get_settings),
 ) -> None:
+    """Fail-closed: sem PIPELINE_API_KEY só libera em dev/test; senão 503."""
     if settings.pipeline_api_key is None:
-        return
+        if settings.app_env in (AppEnv.DEVELOPMENT, AppEnv.TEST):
+            return
+        raise HTTPException(
+            status_code=503,
+            detail="Autenticação da API não configurada (PIPELINE_API_KEY ausente)",
+        )
     expected = settings.pipeline_api_key.get_secret_value()
-    if x_api_key is None or x_api_key != expected:
+    if x_api_key is None or not secrets.compare_digest(x_api_key, expected):
         raise HTTPException(status_code=401, detail="X-API-Key inválida ou ausente")
 
 

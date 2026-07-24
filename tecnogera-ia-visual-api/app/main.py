@@ -45,6 +45,47 @@ def _recovery_hook(cfg: Settings) -> None:
         get_logger(__name__).warning("recovery_hook_failed", reason=str(exc))
 
 
+def _seed_initial_user(cfg: Settings) -> None:
+    """Cria o usuário inicial do portal a partir das variáveis de ambiente.
+
+    Idempotente e best-effort: se ``INITIAL_ADMIN_EMAIL`` /
+    ``INITIAL_ADMIN_PASSWORD`` não estão definidos, ou o usuário já existe,
+    nada acontece. Falhas (ex.: banco indisponível) apenas logam — não
+    derrubam o boot da API.
+    """
+    if cfg.initial_admin_email is None or cfg.initial_admin_password is None:
+        return
+    log = get_logger(__name__)
+    try:
+        from sqlalchemy import create_engine
+        from sqlalchemy.orm import sessionmaker
+
+        from app.cli import ensure_initial_user
+
+        engine = create_engine(cfg.database_url, pool_pre_ping=True)
+        session_factory = sessionmaker(bind=engine)
+        with session_factory() as db:
+            created = ensure_initial_user(
+                db,
+                cfg.initial_admin_email,
+                cfg.initial_admin_password.get_secret_value(),
+            )
+        engine.dispose()
+        if created:
+            log.warning(
+                "initial_admin_criado",
+                email=cfg.initial_admin_email,
+                aviso=(
+                    "troque a senha e remova INITIAL_ADMIN_EMAIL/PASSWORD do "
+                    "ambiente apos o primeiro login"
+                ),
+            )
+        else:
+            log.info("initial_admin_ja_existe", email=cfg.initial_admin_email)
+    except Exception as exc:  # noqa: BLE001
+        log.warning("seed_initial_user_failed", reason=str(exc))
+
+
 def create_app(settings: Settings | None = None) -> FastAPI:
     """Application factory — facilita teste isolado e reuso em workers."""
     cfg = settings or get_settings()
@@ -54,6 +95,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     @asynccontextmanager
     async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
         _recovery_hook(cfg)
+        _seed_initial_user(cfg)
         # Arq pool: opcional — não falha o boot se Redis estiver indisponível
         try:
             from arq import create_pool
@@ -77,10 +119,14 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         lifespan=lifespan,
     )
 
+    # CORS: nunca combinar wildcard com credenciais (combinação insegura e
+    # rejeitada pelos browsers). Com origem '*' as credenciais são desligadas;
+    # em produção o boot já exige origens explícitas (ver Settings._validar_producao).
+    _cors_allow_all = cfg.cors_allow_origins == ["*"]
     app.add_middleware(
         CORSMiddleware,
         allow_origins=cfg.cors_allow_origins,
-        allow_credentials=True,
+        allow_credentials=not _cors_allow_all,
         allow_methods=["*"],
         allow_headers=["*"],
     )
@@ -94,6 +140,15 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     )
 
     register_exception_handlers(app)
+
+    # Rate limiter do login (brute-force). Instância por app → sem estado
+    # global compartilhado entre testes.
+    from app.services.rate_limit import RateLimiter
+
+    app.state.login_rate_limiter = RateLimiter(
+        max_attempts=cfg.login_max_attempts,
+        window_seconds=cfg.login_window_seconds,
+    )
 
     app.include_router(meta.router)
     app.include_router(pipeline.router)

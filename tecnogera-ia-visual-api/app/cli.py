@@ -29,6 +29,20 @@ def create_user_in_db(db: Session, email: str, password: str) -> None:
     db.commit()
 
 
+def ensure_initial_user(db: Session, email: str, password: str) -> bool:
+    """Cria o usuário se ainda não existir (idempotente).
+
+    Retorna ``True`` se criou o usuário agora, ``False`` se já existia.
+    Usado no boot da API para provisionar o acesso inicial via variáveis
+    de ambiente (INITIAL_ADMIN_EMAIL / INITIAL_ADMIN_PASSWORD).
+    """
+    existing = db.query(User).filter(User.email == email).first()
+    if existing is not None:
+        return False
+    create_user_in_db(db, email, password)
+    return True
+
+
 def _make_db_session() -> Session:  # pragma: no cover
     """Cria uma sessão de banco padrão via settings de produção."""
     from sqlalchemy import create_engine

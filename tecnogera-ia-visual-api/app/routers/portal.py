@@ -136,9 +136,24 @@ def login(
     request: Request,
     db: Session = Depends(get_db),
 ) -> UserResponse:
+    # Brute-force: janela deslizante por e-mail. Bloqueio temporário via 429.
+    limiter = getattr(request.app.state, "login_rate_limiter", None)
+    rl_key = body.email.strip().lower()
+    if limiter is not None and limiter.is_blocked(rl_key):
+        _log.warning("portal_login_rate_limited", email=rl_key)
+        raise HTTPException(
+            status_code=429,
+            detail="Muitas tentativas de login. Aguarde alguns minutos e tente novamente.",
+        )
+
     user = authenticate(db, body.email, body.password)
     if user is None:
+        if limiter is not None:
+            limiter.register_failure(rl_key)
         raise HTTPException(status_code=401, detail="Credenciais inválidas")
+
+    if limiter is not None:
+        limiter.reset(rl_key)
 
     user.last_login_at = datetime.now(UTC)
     db.commit()

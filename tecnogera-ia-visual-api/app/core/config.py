@@ -94,6 +94,19 @@ class Settings(BaseSettings):
 
     session_secret: SecretStr = SecretStr(_DEFAULT_SESSION_SECRET)
 
+    # Usuário inicial do portal — criado no boot se ainda não existir (IAVS-030).
+    # Opcional: se não definido, o primeiro usuário deve ser criado via
+    # `python -m app.cli create_user`. Após o 1º login, troque a senha e
+    # remova estas variáveis do ambiente.
+    initial_admin_email: str | None = None
+    initial_admin_password: SecretStr | None = None
+
+    # Proteção contra brute-force no login do portal (IAVS-030).
+    # Janela deslizante por e-mail: após ``login_max_attempts`` falhas dentro de
+    # ``login_window_seconds``, novas tentativas retornam 429 até a janela expirar.
+    login_max_attempts: int = Field(default=10, ge=1)
+    login_window_seconds: int = Field(default=300, ge=1)
+
     event_queue_concurrency: int = Field(default=30, ge=1)
     event_queue_max_retries: int = Field(default=3, ge=0)
     dropbox_avarias_path: str = "/Avarias"
@@ -109,6 +122,8 @@ class Settings(BaseSettings):
         "anthropic_api_key",
         "openai_api_key",
         "pipeline_api_key",
+        "initial_admin_email",
+        "initial_admin_password",
         mode="before",
     )
     @classmethod
