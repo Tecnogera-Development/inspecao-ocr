@@ -1,0 +1,123 @@
+# Inspeção OCR / IA Visual — Docker Compose de PRODUÇÃO (imagens do registry; sem build).
+#
+# Usado pelo deploy via Jenkins na VPS. As imagens são construídas/publicadas pelo
+# pipeline e referenciadas por ${API_IMAGE}/${WEB_IMAGE} (do .deploy-image.env que o
+# Jenkins grava). As variáveis de negócio vêm do .env.prod (NUNCA versionado).
+#
+# Postgres: NÃO subimos banco aqui — usamos o Postgres 16 já existente na VPS
+# (container `postgres16` na rede `infra`). api/worker/migrate entram na rede `infra`
+# e conectam em `postgres16:5432` (POSTGRES_HOST no .env.prod).
+#
+# Acesso público: SOMENTE via Cloudflare Tunnel (cloudflared → inspecao-web:8094 na
+# rede `infra`). Nada é exposto na internet diretamente (o bind no host é loopback).
+#
+#   docker compose -f docker-compose.prod.yml --env-file .env.prod --env-file .deploy-image.env run --rm migrate
+#   docker compose -f docker-compose.prod.yml --env-file .env.prod --env-file .deploy-image.env up -d
+
+name: inspecao-ocr
+
+x-logging: &logging
+  driver: json-file
+  options:
+    max-size: 10m
+    max-file: "5"
+
+services:
+  # One-shot: aplica migrações Alembic (upgrade head — não-destrutivo) e encerra.
+  # Roda ANTES de subir a api, no stage de migração do Jenkins.
+  migrate:
+    image: ${API_IMAGE:?defina API_IMAGE no .deploy-image.env}
+    restart: "no"
+    command: ["alembic", "upgrade", "head"]
+    env_file: .env.prod
+    environment:
+      APP_ENV: production
+    networks:
+      # `infra`: alcança o Postgres externo (postgres16:5432).
+      - default
+      - infra
+
+  api:
+    image: ${API_IMAGE:?defina API_IMAGE no .deploy-image.env}
+    container_name: inspecao-api
+    restart: unless-stopped
+    env_file: .env.prod
+    environment:
+      APP_ENV: production
+    depends_on:
+      redis:
+        condition: service_healthy
+    # SEM porta no host — alcançada só pelo web (proxy /api → api:8000) na rede default.
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request,sys; sys.exit(0) if urllib.request.urlopen('http://127.0.0.1:8000/health', timeout=2).status==200 else sys.exit(1)"]
+      interval: 10s
+      timeout: 3s
+      start_period: 20s
+      retries: 6
+    logging: *logging
+    networks:
+      - default
+      - infra
+
+  worker:
+    image: ${API_IMAGE:?defina API_IMAGE no .deploy-image.env}
+    container_name: inspecao-worker
+    restart: unless-stopped
+    command: ["arq", "app.worker.WorkerSettings"]
+    env_file: .env.prod
+    environment:
+      APP_ENV: production
+    depends_on:
+      redis:
+        condition: service_healthy
+    logging: *logging
+    networks:
+      - default
+      - infra
+
+  redis:
+    image: redis:7-alpine
+    container_name: inspecao-redis
+    restart: unless-stopped
+    command: ["redis-server", "--appendonly", "yes"]
+    volumes:
+      - inspecao_redis:/data
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 3s
+      retries: 5
+    logging: *logging
+    networks:
+      - default
+
+  web:
+    image: ${WEB_IMAGE:?defina WEB_IMAGE no .deploy-image.env}
+    container_name: inspecao-web
+    restart: unless-stopped
+    depends_on:
+      api:
+        condition: service_healthy
+    ports:
+      # Loopback — o Cloudflare Tunnel aponta para inspecao-web:8094 pela rede `infra`;
+      # este bind em 127.0.0.1 serve ao smoke test do Jenkins na VPS.
+      - "127.0.0.1:${WEB_PORT:-8094}:8094"
+    healthcheck:
+      test: ["CMD-SHELL", "wget -qO- http://127.0.0.1:8094/ >/dev/null 2>&1 || exit 1"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+    logging: *logging
+    networks:
+      # `default`: proxy /api → api:8000. `infra`: cloudflared alcança inspecao-web:8094.
+      - default
+      - infra
+
+volumes:
+  inspecao_redis:
+    name: inspecao_redis
+
+networks:
+  # Rede compartilhada com o cloudflared e o Postgres (postgres16). JÁ existe na VPS.
+  infra:
+    external: true
