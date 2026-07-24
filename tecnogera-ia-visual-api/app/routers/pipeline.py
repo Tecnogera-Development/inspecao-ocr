@@ -9,6 +9,7 @@ from __future__ import annotations
 
 import asyncio
 import re
+import secrets
 import uuid
 from datetime import UTC, datetime
 from typing import TYPE_CHECKING
@@ -16,7 +17,7 @@ from typing import TYPE_CHECKING
 from fastapi import APIRouter, BackgroundTasks, Depends, Header, HTTPException, Query
 from pydantic import BaseModel, field_validator
 
-from app.core.config import Settings, get_settings
+from app.core.config import AppEnv, Settings, get_settings
 from app.core.logging import get_logger
 from app.db.session import get_db
 from app.models.pipeline import JobCreatedResponse, JobDetailResponse, PipelineJob
@@ -35,11 +36,20 @@ def verify_api_key(
     x_api_key: str | None = Header(default=None),
     settings: Settings = Depends(get_settings),
 ) -> None:
-    """Valida X-API-Key quando PIPELINE_API_KEY está configurada."""
+    """Valida X-API-Key. Fail-closed: sem chave configurada, só libera em dev/test.
+
+    Em staging/produção a ausência de PIPELINE_API_KEY é erro de configuração
+    (503) — nunca acesso liberado. Em produção o boot já falha sem a chave.
+    """
     if settings.pipeline_api_key is None:
-        return
+        if settings.app_env in (AppEnv.DEVELOPMENT, AppEnv.TEST):
+            return
+        raise HTTPException(
+            status_code=503,
+            detail="Autenticação da API não configurada (PIPELINE_API_KEY ausente)",
+        )
     expected = settings.pipeline_api_key.get_secret_value()
-    if x_api_key is None or x_api_key != expected:
+    if x_api_key is None or not secrets.compare_digest(x_api_key, expected):
         raise HTTPException(status_code=401, detail="X-API-Key inválida ou ausente")
 
 
