@@ -16,8 +16,10 @@ pipeline {
         REMOTE_PORT      = "22"
         REMOTE_DIR       = "/opt/apps/inspecao-ocr"
         // Credencial do Jenkins com write:packages/read:packages na org Tecnogera-Development.
-        GHCR_CRED        = "token_tecnogera_github"   // AJUSTE: criar no Jenkins
-        SSH_CRED         = "ssh-tecnogera-rsa"        // AJUSTE se o id for outro
+        // Credencial "Username with password" do Jenkins: usuário GitHub + PAT com
+        // write:packages/read:packages (GHCR). Mesmo id usado no checkout do repo.
+        GHCR_CRED        = "inspecao-ocr"
+        SSH_CRED         = "ssh-tecnogera-rsa"
         COMPOSE_FILE     = "docker-compose.prod.yml"
         TAG              = "${BUILD_NUMBER}"
     }
