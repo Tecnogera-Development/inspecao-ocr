@@ -8,6 +8,12 @@ Thumbs.db
 !.env.example
 !.env.deploy.example
 !.env.production.example
+!.env.prod.example
+
+# Artefatos de deploy gerados na VPS (nunca versionar)
+.deploy-image.env
+.rollback-image.env
+.env.prod
 
 # Editors
 .vscode/
