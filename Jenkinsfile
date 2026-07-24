@@ -159,24 +159,29 @@ pipeline {
                 script {
                     sleep 25
                     sshagent(credentials: [env.SSH_CRED]) {
+                        // Heredoc com delimitador CITADO (<<'SMOKE'): o corpo vai
+                        // literal para o bash REMOTO — nada é expandido localmente.
+                        // WEB_PORT (var do Jenkins) é injetada como env remota.
                         sh '''
                             set -e
-                            ssh -p ${REMOTE_PORT} -o StrictHostKeyChecking=no ${REMOTE_USER}@${REMOTE_HOST} "
-                                echo 'Verificando o web (SPA) em 127.0.0.1:${WEB_PORT}...'
-                                curl -fsS -o /dev/null -w 'web HTTP %{http_code}\\n' http://127.0.0.1:${WEB_PORT}/
+                            ssh -p ${REMOTE_PORT} -o StrictHostKeyChecking=no ${REMOTE_USER}@${REMOTE_HOST} "WEB_PORT='${WEB_PORT}' bash -s" <<'SMOKE'
+set -e
+echo "Verificando o web (SPA) em 127.0.0.1:${WEB_PORT}..."
+curl -fsS -o /dev/null -w 'web HTTP %{http_code}\\n' "http://127.0.0.1:${WEB_PORT}/"
 
-                                echo 'Aguardando a API ficar healthy...'
-                                for i in \$(seq 1 12); do
-                                    ST=\$(docker inspect inspecao-api --format='{{.State.Health.Status}}' 2>/dev/null || echo 'unknown')
-                                    if [ \"\${ST}\" = 'healthy' ]; then break; fi
-                                    sleep 5
-                                done
-                                echo \"api health: \${ST}\"
-                                [ \"\${ST}\" = 'healthy' ] || { echo 'API nao ficou healthy'; exit 1; }
+echo 'Aguardando a API ficar healthy...'
+ST=unknown
+for i in $(seq 1 12); do
+    ST=$(docker inspect inspecao-api --format='{{.State.Health.Status}}' 2>/dev/null || echo unknown)
+    [ "$ST" = healthy ] && break
+    sleep 5
+done
+echo "api health: $ST"
+[ "$ST" = healthy ] || { echo 'API nao ficou healthy'; exit 1; }
 
-                                echo 'Containers em execucao:'
-                                docker ps --filter name=inspecao --format 'table {{.Names}}\t{{.Status}}'
-                            "
+echo 'Containers em execucao:'
+docker ps --filter name=inspecao --format 'table {{.Names}}\\t{{.Status}}'
+SMOKE
                         '''
                     }
                 }
