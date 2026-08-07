@@ -1,0 +1,230 @@
+{#-
+  ============================================================================
+  Laudo de inspeção visual — template de impressão (WeasyPrint)
+  Migrado do protótipo aprovado no
+  ticket 04 (docs/laudo-pdf/laudo.html.j2), já com o ramo perdedor de cada
+  decisão apagado (nota do próprio protótipo: "depois da conversa, apagar o
+  ramo perdedor — um laudo que muda de forma conforme a flag é um laudo que
+  ninguém consegue criticar"):
+
+    - layout: SEMPRE grade 2×2 (variante dossiê apagada)
+    - rodapé: SEMPRE sóbrio, sem estado de validação
+    - SEM destaque de largura inteira para a vista com achado
+    - SEM aviso de multi-ativo (n_linhas > 1) — decisão do dev, ticket 04
+
+  Contexto esperado (montado por `contexto_laudo()` em
+  `app/services/laudo_pdf.py`):
+
+    laudo                dict — payload de GET /api/v1/portal/checklists/{id}
+                          (o MESMO `ChecklistDetailResponse.model_dump()` que
+                          vira JSON — o PDF não pode discordar da tela)
+    resumo               dict — números derivados (contagens de vista, achados)
+    doc                  dict — referencia, emitido_em, nome_arquivo
+    assets               dict — logo (data URI)
+    fotos                dict — campo da vista -> data URI da foto já baixada
+    fotos_indisponiveis  set  — campos cuja foto foi recebida mas falhou ao
+                          baixar do Dropbox no momento da emissão
+    rotulos              dict — externo, classe, tipo_defeito, severidade,
+                          tipo_inspecao (vocabulário do backend)
+
+  Filtros usados: |data_br  |datahora_br  |pessoa  |ou  (definidos no módulo)
+  ============================================================================
+-#}
+{%- set eq = laudo.equipamento -%}
+{%- set ind = laudo.indicador -%}
+{%- set classe_estado = {"nao_conforme": "nao-conforme", "nao_processavel": "inconclusivo", "conforme": "conforme"}[ind] -%}
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+  <meta charset="utf-8">
+  <title>{{ doc.referencia }} — Laudo de inspeção visual — {{ eq.patrimonio }}</title>
+  <link rel="stylesheet" href="laudo.css">
+</head>
+<body class="layout-grade">
+
+{#- Portadores das margin boxes: conteúdo dinâmico sem Jinja dentro do CSS -#}
+<span class="string-only s-cabecalho">Laudo de inspeção visual · {{ eq.patrimonio }} · {{ eq.data_conclusao|data_br }}</span>
+<span class="string-only s-referencia">{{ doc.referencia }}</span>
+<span class="string-only s-rodape">Laudo produzido por leitura automatizada de imagens · Tecnogera</span>
+
+{# ═══ CAPA ══════════════════════════════════════════════════════════════ #}
+<table class="capa">
+  <tr>
+    <td class="capa-marca"><img src="{{ assets.logo }}" alt="Tecnogera"></td>
+    <td class="capa-titulo">
+      <h1>Laudo de inspeção visual</h1>
+      <p class="capa-ref">{{ doc.referencia }} &nbsp;·&nbsp; emitido em {{ doc.emitido_em }}</p>
+    </td>
+  </tr>
+</table>
+<hr class="regua-marca">
+
+{# ═══ IDENTIFICAÇÃO ═════════════════════════════════════════════════════ #}
+<table class="identificacao">
+  <tr>
+    <td><span class="rot">Cliente</span><span class="val">{{ eq.cliente|ou("Não informado") }}</span></td>
+    <td><span class="rot">Equipamento</span><span class="val">{{ eq.patrimonio|ou("Não informado") }}</span></td>
+    <td><span class="rot">Data da inspeção</span><span class="val">{{ eq.data_conclusao|data_br }}</span></td>
+    <td><span class="rot">Filial responsável</span><span class="val">{{ eq.filial|ou("—") }}</span></td>
+  </tr>
+</table>
+
+{# ═══ VEREDITO ══════════════════════════════════════════════════════════ #}
+<div class="veredito e-{{ classe_estado }}">
+  <p class="estado">{{ rotulos.externo[ind] }}</p>
+  <p class="resumo">{{ resumo.frase }}</p>
+  {%- if resumo.qualificacao %}
+  <p class="qualifica">{{ resumo.qualificacao }}</p>
+  {%- endif %}
+</div>
+
+{# ═══ EQUIPAMENTO ═══════════════════════════════════════════════════════ #}
+{#- A faixa de identificação já carrega cliente, patrimônio, data e filial.
+    Esta tabela traz só o que ela NÃO tem: repetir os quatro campos custava uma
+    linha inteira de página e fazia o leitor conferir se os dois blocos batiam. -#}
+<h2>Dados do serviço</h2>
+<table class="equipamento">
+  <tr>
+    <td><span class="rot">Tipo de inspeção</span>{{ rotulos.tipo_inspecao }}</td>
+    <td><span class="rot">Contrato</span>{{ eq.contrato|ou("—") }}</td>
+    <td><span class="rot">Ordem de manutenção</span>{{ eq.numero_om|ou("—") }}</td>
+  </tr>
+  <tr>
+    <td><span class="rot">Técnico responsável pelo registro</span>{{ eq.responsavel|pessoa }}</td>
+    <td><span class="rot">Checklist de origem</span>nº {{ eq.codigo_checklist }}</td>
+    <td><span class="rot">Vistas fotografadas</span>{{ resumo.vistas_com_foto }} de {{ resumo.total_vistas }} previstas</td>
+  </tr>
+</table>
+
+{# ═══ REGISTRO FOTOGRÁFICO ══════════════════════════════════════════════ #}
+<h2>Registro fotográfico<span class="contagem">{{ resumo.total_vistas }} vistas previstas</span></h2>
+
+{%- macro caixa_foto(v) -%}
+  {%- set uri = fotos.get(v.campo) -%}
+  {%- if v.recebida and uri %}
+  <div class="foto-caixa">
+    <img src="{{ uri }}" alt="Vista {{ v.rotulo }} do equipamento {{ eq.patrimonio }}">
+    {%- if v.indicador == "nao_processavel" %}
+    <span class="selo">Vista não avaliada — {{ v.motivo_rotulo|ou("qualidade insuficiente") }}</span>
+    {%- endif %}
+  </div>
+  {%- elif v.recebida and v.campo in fotos_indisponiveis %}
+  <div class="foto-vazia">Foto indisponível — falha ao recuperar do Dropbox na emissão deste laudo</div>
+  {%- else %}
+  <div class="foto-vazia">Sem registro fotográfico</div>
+  {%- endif -%}
+{%- endmacro -%}
+
+{%- macro classe_moldura(v) -%}
+  {%- if v.indicador == "nao_conforme" %}m-nao-conforme
+  {%- elif v.indicador == "nao_processavel" or not v.recebida %}m-inconclusivo
+  {%- endif -%}
+{%- endmacro -%}
+
+{%- macro estado_vista(v) -%}
+  {%- if not v.recebida %}
+  <span class="estado-vista v-ausente">Vista prevista sem fotografia — não avaliada</span>
+  {%- elif v.indicador == "nao_conforme" %}
+  <span class="estado-vista v-nao-conforme">Não conforme</span>
+  <span class="detalhe">{{ rotulos.tipo_defeito.get(v.tipo_defeito, v.tipo_defeito) }} · severidade {{ v.severidade_rotulo|lower }}</span>
+  {%- elif v.indicador == "nao_processavel" %}
+  <span class="estado-vista v-inconclusivo">Não foi possível avaliar</span>
+  <span class="detalhe">{{ v.motivo_rotulo|ou("qualidade insuficiente da imagem") }} — recomenda-se novo registro</span>
+  {%- else %}
+  <span class="estado-vista v-conforme">Sem não conformidade identificada</span>
+  {%- endif -%}
+{%- endmacro -%}
+
+{# ─── Grade 2×2 (VARIANTE A — decisão do dev, ticket 04) ─────────────────── #}
+<table class="grade">
+  {%- for linha in laudo.vistas|batch(2) %}
+  <tr>
+    {%- for v in linha %}
+    <td>
+      <div class="moldura {{ classe_moldura(v) }}">
+        {{ caixa_foto(v) }}
+        <div class="legenda"><span class="vista">{{ v.rotulo }}</span>{{ estado_vista(v) }}</div>
+      </div>
+    </td>
+    {%- endfor %}
+    {%- if linha|length == 1 %}<td></td>{%- endif %}
+  </tr>
+  {%- endfor %}
+</table>
+
+{# ═══ NÃO CONFORMIDADES ═════════════════════════════════════════════════
+   Só existe quando há o que detalhar. Um laudo conforme, sem lacuna de vista,
+   não ganha uma seção "0 não conformidades" — o veredito no topo já disse
+   isso, e a seção vazia é o que empurraria o documento para uma segunda
+   página quase em branco.
+   ═══════════════════════════════════════════════════════════════════════ #}
+{%- if resumo.detalhar_achados %}
+<h2 class="quebra-parecer">Não conformidades identificadas<span class="contagem">{{ laudo.achados|length }}</span></h2>
+{%- for a in laudo.achados %}
+<div class="achado sev-{{ a.severidade|ou(4) }}">
+  <p class="cabeca">
+    <span class="sev-tag">Severidade {{ rotulos.severidade[a.severidade] }}</span>
+    <span class="num">{{ loop.index }}.</span>
+    <span class="tipo">{{ rotulos.tipo_defeito.get(a.tipo_defeito, a.tipo_defeito) }}</span>
+  </p>
+  <p class="onde">
+    Vista {{ a.vista|lower }} &nbsp;·&nbsp; {{ rotulos.classe.get(a.classe, a.classe) }}
+    {%- if a.local %} &nbsp;·&nbsp; {{ a.local }}{% endif %}
+  </p>
+  {%- if a.observacao %}
+  <div class="leitura"><span class="marcador">Descrição gerada por leitura automatizada</span>{{ a.observacao }}</div>
+  {%- endif %}
+</div>
+{%- endfor %}
+{%- endif %}
+
+{# ═══ VISTAS NÃO AVALIADAS ══════════════════════════════════════════════
+   A seção que impede o modo de falha mais caro deste documento: a vista que a
+   IA não conseguiu julgar virar silêncio, e o silêncio ser lido como
+   conformidade. Ela existe mesmo quando o veredito é "conforme nas demais".
+   ═══════════════════════════════════════════════════════════════════════ #}
+{%- if resumo.detalhar_nao_avaliadas %}
+<h2{% if not resumo.detalhar_achados %} class="quebra-parecer"{% endif %}>Vistas não avaliadas<span class="contagem">{{ resumo.vistas_nao_avaliadas|length }}</span></h2>
+{%- if not laudo.achados %}
+<div class="sem-achado parcial">
+  Nas {{ resumo.vistas_avaliadas }} vistas que foi possível avaliar não se identificou não
+  conformidade. As vistas abaixo permanecem <strong>sem parecer</strong>.
+</div>
+{%- endif %}
+{%- for v in resumo.vistas_nao_avaliadas %}
+<div class="aviso">
+  <span class="aviso-titulo">{{ v.rotulo }}</span>
+  {{ v.explicacao }} <strong>Esta face do equipamento não recebeu parecer</strong> — a ausência
+  de não conformidade nas demais vistas não se estende a ela.
+</div>
+{%- endfor %}
+{%- endif %}
+
+{# ═══ DECLARAÇÃO ════════════════════════════════════════════════════════
+   Sem parágrafo de estado de validação — consequência da escolha do rodapé
+   sóbrio (ticket 04, "Consequência da escolha do rodapé"): manter os dois em
+   desacordo seria incoerente. Os parágrafos abaixo não falam de validação,
+   falam do que o documento É — esses ficam.
+   ═══════════════════════════════════════════════════════════════════════ #}
+<div class="declaracao">
+  <h3>Declaração sobre a origem deste laudo</h3>
+  <p>
+    As observações deste documento foram produzidas por um sistema de leitura automatizada de
+    imagens, a partir das fotografias registradas no checklist nº {{ eq.codigo_checklist }} em
+    {{ eq.data_conclusao|data_br }}. Os trechos em itálico são a descrição gerada por esse
+    sistema; medidas, extensões e localizações são estimativas visuais, não medições.
+  </p>
+  <p>
+    A avaliação limita-se ao que é visível nas fotografias das vistas externas do equipamento.
+    Não abrange ensaio funcional, medição elétrica, inspeção interna nem qualquer verificação
+    não fotográfica. Em caso de divergência entre este documento e a inspeção presencial,
+    prevalece a inspeção presencial.
+  </p>
+  <p class="assinatura">
+    Tecnogera Geradores &nbsp;·&nbsp; {{ doc.referencia }} &nbsp;·&nbsp;
+    emitido em {{ doc.emitido_em }} &nbsp;·&nbsp; filial {{ eq.filial|ou("—") }}
+  </p>
+</div>
+
+</body>
+</html>

@@ -4,6 +4,19 @@
  *
  * This is a hand-crafted stub reflecting the portal routes (PORTAL-003).
  * Replace with the real generated file once the backend is reachable.
+ *
+ * O bloco de checklists (ticket mvp-c54-c57/09) foi trazido da saída real do
+ * gerador, não escrito à mão a partir do markdown:
+ *
+ *   # no repo da API
+ *   .venv/bin/python -c "import json; from app.main import app; \
+ *     print(json.dumps(app.openapi()))" > /tmp/openapi.json
+ *   # no repo do portal
+ *   npx openapi-typescript /tmp/openapi.json -o /tmp/gen-types.ts
+ *
+ * `pnpm gen:types` (que exige a API servindo /openapi.json) reescreve este
+ * arquivo inteiro no formato `components["schemas"][...]` e quebraria as
+ * páginas que importam os tipos nomeados daqui — por isso a transcrição.
  */
 
 export interface paths {
@@ -34,7 +47,9 @@ export interface paths {
   '/api/v1/portal/me': {
     get: {
       responses: {
-        200: { content: { 'application/json': { id: string; email: string } } }
+        // `role` chegou no ticket usuarios-portal/02 (`UserResponse.role`,
+        // `app/routers/portal.py`) — é o que decide o item de menu Usuários.
+        200: { content: { 'application/json': { id: string; email: string; role: string } } }
         401: { content: { 'application/json': { detail: string } } }
       }
     }
@@ -182,6 +197,94 @@ export interface paths {
     }
   }
 
+  // ── Checklists c54–c57 (ticket mvp-c54-c57/09) ─────────────────────────────
+  // Transcrito da saída de `openapi-typescript` sobre o schema real da API
+  // (ver cabeçalho deste arquivo): o gerador reescreveria o stub inteiro e
+  // quebraria as demais páginas, então só o bloco novo foi trazido.
+  '/api/v1/portal/checklists': {
+    get: {
+      parameters: {
+        query?: {
+          limit?: number
+          offset?: number
+          /** CSV: conforme, nao_conforme, nao_processavel, sem_analise */
+          indicador?: string | null
+          /** pendente | confirmado | corrigido */
+          validacao?: string | null
+          filial?: string | null
+          /** Código F0NN ou trecho do texto */
+          formulario?: string | null
+          /** codigo_checklist do Sisloc */
+          codigo_checklist?: string | null
+          /** Data de conclusão — início (YYYY-MM-DD) */
+          data_de?: string | null
+          /** Data de conclusão — fim, inclusivo (YYYY-MM-DD) */
+          data_ate?: string | null
+          /** severidade (padrão) | recente */
+          ordenar?: string
+        }
+      }
+      responses: {
+        200: { content: { 'application/json': ChecklistListResponse } }
+        401: { content: { 'application/json': { detail: string } } }
+        422: { content: { 'application/json': { detail: unknown } } }
+      }
+    }
+  }
+
+  '/api/v1/portal/checklists/{identificador}': {
+    get: {
+      parameters: {
+        /** Aceita job_id (UUID) ou codigo_checklist (execução mais recente) */
+        path: { identificador: string }
+      }
+      responses: {
+        200: { content: { 'application/json': ChecklistDetailResponse } }
+        401: { content: { 'application/json': { detail: string } } }
+        404: { content: { 'application/json': { detail: string } } }
+        422: { content: { 'application/json': { detail: unknown } } }
+      }
+    }
+  }
+
+  // ── HITL: confirmar / corrigir (ticket mvp-c54-c57/10) ─────────────────────
+  // São ESCRITAS: exigem sessão e CSRF (o middleware de `api/client.ts` injeta
+  // o header). As duas rotas de leitura acima são GET e dispensam.
+  '/api/v1/portal/checklists/{identificador}/confirmar': {
+    post: {
+      parameters: {
+        /** Aceita job_id (UUID) ou codigo_checklist */
+        path: { identificador: string }
+      }
+      /** Sem corpo: confirmar é dizer "sim" ao que está na tela. */
+      responses: {
+        200: { content: { 'application/json': ChecklistValidationResponse } }
+        401: { content: { 'application/json': { detail: string } } }
+        403: { content: { 'application/json': { detail: string } } }
+        404: { content: { 'application/json': { detail: string } } }
+        422: { content: { 'application/json': { detail: string } } }
+      }
+    }
+  }
+
+  '/api/v1/portal/checklists/{identificador}/corrigir': {
+    post: {
+      parameters: {
+        path: { identificador: string }
+      }
+      requestBody: {
+        content: { 'application/json': ChecklistCorrecaoBody }
+      }
+      responses: {
+        200: { content: { 'application/json': ChecklistValidationResponse } }
+        401: { content: { 'application/json': { detail: string } } }
+        403: { content: { 'application/json': { detail: string } } }
+        404: { content: { 'application/json': { detail: string } } }
+        422: { content: { 'application/json': { detail: string } } }
+      }
+    }
+  }
+
   '/api/v1/portal/run': {
     post: {
       requestBody: {
@@ -197,9 +300,128 @@ export interface paths {
       }
     }
   }
+
+  // ── Usuários (ticket usuarios-portal/04) ────────────────────────────────────
+  // Contrato transcrito de `app/routers/usuarios.py` (mesmo motivo do
+  // cabeçalho: o gerador reescreveria o stub inteiro). Todas as rotas de
+  // admin exigem `require_admin` no backend e devolvem 403 para operador —
+  // o front só esconde o item de menu, não reimplementa a checagem.
+  '/api/v1/portal/usuarios': {
+    get: {
+      responses: {
+        200: { content: { 'application/json': UsuarioListItem[] } }
+        401: { content: { 'application/json': { detail: string } } }
+        403: { content: { 'application/json': { detail: string } } }
+      }
+    }
+    post: {
+      requestBody: {
+        content: { 'application/json': { email: string; role?: string } }
+      }
+      responses: {
+        // A ÚNICA vez que `codigo` chega em claro na criação.
+        201: { content: { 'application/json': UsuarioCriadoResponse } }
+        401: { content: { 'application/json': { detail: string } } }
+        403: { content: { 'application/json': { detail: string } } }
+        409: { content: { 'application/json': { detail: string } } }
+        422: { content: { 'application/json': { detail: unknown } } }
+      }
+    }
+  }
+
+  '/api/v1/portal/usuarios/{user_id}/inativar': {
+    post: {
+      parameters: { path: { user_id: string } }
+      responses: {
+        200: { content: { 'application/json': UsuarioAcaoResponse } }
+        400: { content: { 'application/json': { detail: string } } }
+        401: { content: { 'application/json': { detail: string } } }
+        403: { content: { 'application/json': { detail: string } } }
+        404: { content: { 'application/json': { detail: string } } }
+      }
+    }
+  }
+
+  '/api/v1/portal/usuarios/{user_id}/reativar': {
+    post: {
+      parameters: { path: { user_id: string } }
+      responses: {
+        200: { content: { 'application/json': UsuarioAcaoResponse } }
+        401: { content: { 'application/json': { detail: string } } }
+        403: { content: { 'application/json': { detail: string } } }
+        404: { content: { 'application/json': { detail: string } } }
+      }
+    }
+  }
+
+  '/api/v1/portal/usuarios/{user_id}/resetar-senha': {
+    post: {
+      parameters: { path: { user_id: string } }
+      responses: {
+        // Mesma mecânica da criação: nova janela, novo código, uma vez só.
+        200: { content: { 'application/json': UsuarioCriadoResponse } }
+        401: { content: { 'application/json': { detail: string } } }
+        403: { content: { 'application/json': { detail: string } } }
+        404: { content: { 'application/json': { detail: string } } }
+      }
+    }
+  }
+
+  // Pública — sem sessão, protegida só pelo rate limit (`app/core/ratelimit.py`).
+  '/api/v1/portal/definir-senha': {
+    post: {
+      requestBody: {
+        content: { 'application/json': { email: string; codigo: string; senha: string } }
+      }
+      responses: {
+        200: { content: { 'application/json': { ok: boolean } } }
+        // Mensagem genérica de propósito — não diferencia e-mail inexistente
+        // de código errado. O front mostra `detail` como veio, sem inventar.
+        400: { content: { 'application/json': { detail: string } } }
+        422: { content: { 'application/json': { detail: unknown } } }
+        429: { content: { 'application/json': { detail: string } } }
+      }
+    }
+  }
 }
 
 // ── shared response types ────────────────────────────────────────────────────
+
+// ── Usuários (ticket usuarios-portal/04) ─────────────────────────────────────
+// `role` é `'admin' | 'operador'` no backend, mas tipado como `string`
+// (mesmo padrão de `indicador`/`validacao` em checklists): vocabulário
+// pequeno e estável, mas o front não deve travar num enum fechado.
+
+/** Uma linha da lista de usuários — `GET /api/v1/portal/usuarios`. */
+export interface UsuarioListItem {
+  id: string
+  email: string
+  role: string
+  is_active: boolean
+  last_login_at: string | null
+  /** Há uma janela de primeira senha/reset aberta (código válido, ainda não usado). */
+  janela_aberta: boolean
+}
+
+/**
+ * Resposta de criar/resetar — a ÚNICA vez que `codigo` aparece em claro
+ * (espelha `UsuarioCriadoResponse` em `app/routers/usuarios.py`). Nunca
+ * persistir este valor fora do estado local do painel que o mostra uma vez.
+ */
+export interface UsuarioCriadoResponse {
+  id: string
+  email: string
+  role: string
+  codigo: string
+}
+
+/** Resposta de inativar/reativar — o estado depois da ação. */
+export interface UsuarioAcaoResponse {
+  id: string
+  email: string
+  role: string
+  is_active: boolean
+}
 
 export interface EventDetailResponse {
   id: string
@@ -311,4 +533,237 @@ export interface JobResultResponse {
   error: string | null
   classifications: ClassificationItemResponse[]
   inconclusivas: ClassificationItemResponse[]
+}
+
+// ── Checklists c54–c57 ───────────────────────────────────────────────────────
+//
+// `indicador` tem TRÊS vereditos (`conforme` | `nao_conforme` |
+// `nao_processavel`) mais `sem_analise`, que NÃO é veredito: é job criado e
+// ainda não processado. `validacao` é dimensão ortogonal ao indicador.
+// Tipados como `string` porque é assim que o backend os declara — o front não
+// deve assumir um enum fechado que o backend possa ampliar.
+
+export interface ChecklistCountersResponse {
+  total: number
+  nao_conformes: number
+  nao_processaveis: number
+  conformes: number
+  sem_analise: number
+  a_validar: number
+}
+
+export interface ChecklistFacetsResponse {
+  filiais: string[]
+  formularios: string[]
+}
+
+/**
+ * O backend declara `achados` como `list[dict[str, Any]]`, então o gerador
+ * produz `Record<string, never>[]` — inútil. Esta é a forma documentada no
+ * contrato do ticket 09; o index signature preserva campos futuros.
+ */
+export interface ChecklistAchadoResponse {
+  classe?: string | null
+  /** Rótulo pronto do backend (ticket 10) — não formatar `snake_case` no front. */
+  classe_rotulo?: string | null
+  tipo_defeito?: string | null
+  tipo_defeito_rotulo?: string | null
+  severidade?: number | null
+  local?: string | null
+  observacao?: string | null
+  confianca?: number | null
+  /** Só na lista achatada da raiz do detalhe. */
+  campo?: string | null
+  /** Rótulo da vista, só na lista achatada da raiz do detalhe. */
+  vista?: string | null
+  [key: string]: unknown
+}
+
+/** Uma linha da lista de checklists. */
+export interface ChecklistItemResponse {
+  job_id: string
+  checklist_id: string
+  status: string
+  indicador: string
+  indicador_rotulo: string
+  /** 1 = crítica … 4 = baixa. `null` quando não há achado. */
+  severidade?: number | null
+  severidade_rotulo?: string | null
+  vista_determinante?: string | null
+  vista_determinante_rotulo?: string | null
+  validacao: string
+  patrimonio?: string | null
+  cliente?: string | null
+  filial?: string | null
+  formulario?: string | null
+  formulario_codigo?: string | null
+  /** Data de conclusão no Sisloc — é a coluna "DATA" da lista. */
+  data?: string | null
+  /** Quando a esteira processou. */
+  criado_em: string
+  n_linhas?: number | null
+  multi_ativo: boolean
+  vistas_recebidas: string[]
+  vistas_esperadas: string[]
+  vistas_ausentes: string[]
+}
+
+export interface ChecklistListResponse {
+  total: number
+  limit: number
+  offset: number
+  contadores: ChecklistCountersResponse
+  facetas: ChecklistFacetsResponse
+  itens: ChecklistItemResponse[]
+}
+
+/**
+ * Julgamento humano de UMA vista (ticket mvp-c54-c57/10).
+ *
+ * `null` no lugar deste bloco = vista pendente. Presente com `tipo_erro: null`
+ * = confirmada; com `tipo_erro` preenchido, o operador disse o QUÊ estava
+ * errado — e é isso que vira insumo de calibragem do prompt.
+ */
+export interface ChecklistViewValidationResponse {
+  /** `pendente` | `confirmado` | `corrigido` */
+  estado: string
+  tipo_erro?: string | null
+  tipo_erro_rotulo?: string | null
+  classe?: string | null
+  classe_rotulo?: string | null
+  severidade?: number | null
+  severidade_rotulo?: string | null
+  observacao?: string | null
+  por?: string | null
+  em?: string | null
+}
+
+/** Uma opção do formulário de correção — valor + rótulo já em português. */
+export interface ValidationOptionResponse {
+  valor: string
+  rotulo: string
+}
+
+/**
+ * Listas do formulário de correção. Vêm do backend pelo mesmo motivo de todo
+ * `*_rotulo`: o vocabulário do domínio não pode viver em dois repositórios.
+ */
+export interface ChecklistValidationOptionsResponse {
+  tipos_erro: ValidationOptionResponse[]
+  classes: ValidationOptionResponse[]
+  /** `valor` é o número como string ("1"…"4"); 1 é a PIOR. */
+  severidades: ValidationOptionResponse[]
+}
+
+/** Resposta de confirmar/corrigir — o estado depois da operação. */
+export interface ChecklistValidationResponse {
+  job_id: string
+  checklist_id: string
+  validacao: string
+  validado_por?: string | null
+  validado_em?: string | null
+  vistas_validadas: number
+  vistas_validaveis: number
+  vistas_corrigidas: number
+}
+
+/** Corpo de `POST .../corrigir`. O tipo do erro é obrigatório de propósito. */
+export interface ChecklistCorrecaoBody {
+  campo: string
+  tipo_erro: string
+  /** Obrigatória em `classe_errada`. */
+  classe?: string | null
+  /** Obrigatória em `severidade_errada`; 1 (crítica) a 4 (baixa). */
+  severidade?: number | null
+  observacao?: string | null
+}
+
+/** Uma moldura do grid — recebida ou apenas esperada. */
+export interface ChecklistViewResponse {
+  campo: string
+  rotulo: string
+  esperada: boolean
+  recebida: boolean
+  status?: string | null
+  indicador?: string | null
+  indicador_rotulo?: string | null
+  motivo_nao_processavel?: string | null
+  motivo_rotulo?: string | null
+  classe?: string | null
+  classe_rotulo?: string | null
+  tipo_defeito?: string | null
+  tipo_defeito_rotulo?: string | null
+  severidade?: number | null
+  severidade_rotulo?: string | null
+  confianca?: number | null
+  observacao?: string | null
+  local?: string | null
+  conteudo_observado?: string | null
+  vista_confere?: boolean | null
+  foto_path?: string | null
+  /** URL pronta do proxy autenticado, já escapada. Não remontar a partir de foto_path. */
+  foto_url?: string | null
+  achados?: ChecklistAchadoResponse[]
+  erro?: string | null
+  determinante: boolean
+  /** `false` = vista sem veredito comparável; não há julgamento a contestar. */
+  corrigivel?: boolean
+  validacao?: ChecklistViewValidationResponse | null
+}
+
+export interface ChecklistEquipmentResponse {
+  codigo_checklist: string
+  patrimonio?: string | null
+  cliente?: string | null
+  contrato?: string | null
+  projeto_bruto?: string | null
+  projeto_padrao_reconhecido: boolean
+  filial?: string | null
+  formulario?: string | null
+  formulario_codigo?: string | null
+  data_conclusao?: string | null
+  responsavel?: string | null
+  numero_om?: number | null
+  origem?: string | null
+  status_sisloc?: string | null
+  n_linhas?: number | null
+  multi_ativo: boolean
+  /** Preenchido só quando `n_linhas > 1` — o checklist cobre mais de um ativo. */
+  aviso?: string | null
+  lido_em?: string | null
+}
+
+export interface ChecklistDetailResponse {
+  job_id: string
+  checklist_id: string
+  status: string
+  indicador: string
+  indicador_rotulo: string
+  severidade?: number | null
+  severidade_rotulo?: string | null
+  confianca?: number | null
+  vista_determinante?: string | null
+  vista_determinante_rotulo?: string | null
+  /** `pendente` | `confirmado` | `corrigido` — dimensão ortogonal ao indicador. */
+  validacao: string
+  validado_por?: string | null
+  validado_em?: string | null
+  /** `false` quando nenhuma vista produziu veredito — não há o que confirmar. */
+  validavel?: boolean
+  opcoes_validacao: ChecklistValidationOptionsResponse
+  criado_em: string
+  iniciado_em?: string | null
+  finalizado_em?: string | null
+  erro?: string | null
+  equipamento: ChecklistEquipmentResponse
+  /** Uma entrada por moldura a desenhar, na ordem canônica c54 → c57. */
+  vistas: ChecklistViewResponse[]
+  vistas_esperadas: string[]
+  vistas_recebidas: string[]
+  vistas_ausentes: string[]
+  /** Explica um grid de 3 molduras. `null` quando as 4 são esperadas. */
+  nota_vistas?: string | null
+  achados?: ChecklistAchadoResponse[]
+  custo_usd: number
+  chamadas_llm: number
 }

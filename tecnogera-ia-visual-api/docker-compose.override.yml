@@ -1,0 +1,47 @@
+services:
+  api:
+    build:
+      target: dev
+    command: ["uvicorn", "app.main:app", "--host", "0.0.0.0", "--port", "8000", "--reload"]
+    volumes:
+      - ./app:/app/app
+      - ./tests:/app/tests
+      - ./pyproject.toml:/app/pyproject.toml
+      - ./Makefile:/app/Makefile:ro
+      - ./deploy.sh:/app/deploy.sh:ro
+      - ./.env.deploy.example:/app/.env.deploy.example:ro
+      - ./docs:/app/docs
+      - ./scripts:/app/scripts:ro
+      - ./alembic.ini:/app/alembic.ini:ro
+      - ./alembic:/app/alembic:ro
+      - ./data:/app/data
+    environment:
+      APP_ENV: development
+      LOG_LEVEL: DEBUG
+      COVERAGE_FILE: /tmp/.coverage
+      RUFF_CACHE_DIR: /tmp/.ruff_cache
+      MYPY_CACHE_DIR: /tmp/.mypy_cache
+
+  worker:
+    build:
+      target: dev
+    # `python -m arq` coloca o CWD (/app) no sys.path → usa o código montado
+    # em ./app (dev), não a cópia baked em /install. Sem isso o `arq` (console
+    # script) importa a cópia antiga da imagem.
+    command: ["python", "-m", "arq", "app.worker.WorkerSettings"]
+    volumes:
+      - ./app:/app/app
+      - ./scripts:/app/scripts:ro
+      - ./alembic.ini:/app/alembic.ini:ro
+      - ./alembic:/app/alembic:ro
+    environment:
+      APP_ENV: development
+      LOG_LEVEL: DEBUG
+
+  postgres:
+    ports:
+      - "5432:5432"
+
+  redis:
+    ports:
+      - "6379:6379"

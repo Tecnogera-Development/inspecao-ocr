@@ -24,6 +24,9 @@ def _prod_env(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setenv("POSTGRES_PASSWORD", "prod-strong-password")
     monkeypatch.setenv("PIPELINE_API_KEY", "prod-pipeline-key")
     monkeypatch.setenv("CORS_ALLOW_ORIGINS", '["https://inspecao.polarisprod.com.br"]')
+    # Sem chave de LLM a produção não sobe (ticket mvp-c54-c57/08): o provider
+    # cairia no fake e produziria laudo fictício indistinguível de um real.
+    monkeypatch.setenv("OPENAI_API_KEY", "sk-prod-fake-para-teste")
 
 
 @pytest.mark.unit
@@ -71,6 +74,59 @@ def test_producao_rejeita_cors_wildcard(monkeypatch: pytest.MonkeyPatch) -> None
     monkeypatch.setenv("CORS_ALLOW_ORIGINS", '["*"]')
     with pytest.raises(ValueError, match="CORS_ALLOW_ORIGINS"):
         Settings(_env_file=None)
+
+
+@pytest.mark.unit
+def test_producao_recusa_subir_sem_chave_de_llm(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Sem chave, o provider cai no fake — e laudo fictício passa por real.
+
+    Guarda-corpo do ticket mvp-c54-c57/08. É o pior modo de falha do projeto:
+    o erro chega ao operador com cara de resultado válido. Não há escape hatch
+    de propósito — não existe uso legítimo de resultado fictício em produção.
+    """
+    _prod_env(monkeypatch)
+    monkeypatch.delenv("OPENAI_API_KEY", raising=False)
+    with pytest.raises(ValueError, match="nenhuma chave de LLM configurada"):
+        Settings(_env_file=None)
+
+
+@pytest.mark.unit
+def test_producao_aceita_so_a_chave_anthropic(monkeypatch: pytest.MonkeyPatch) -> None:
+    """A Anthropic é plano B validado — não é fake, então a produção sobe."""
+    _prod_env(monkeypatch)
+    monkeypatch.delenv("OPENAI_API_KEY", raising=False)
+    monkeypatch.setenv("ANTHROPIC_API_KEY", "sk-ant-prod")
+
+    cfg = Settings(_env_file=None)
+
+    assert cfg.llm_provider_efetivo == "anthropic"
+
+
+@pytest.mark.unit
+def test_chave_vazia_conta_como_ausente_em_producao(monkeypatch: pytest.MonkeyPatch) -> None:
+    """``OPENAI_API_KEY=`` no .env é o caso real que quebrou o ticket 13."""
+    _prod_env(monkeypatch)
+    monkeypatch.setenv("OPENAI_API_KEY", "   ")
+    with pytest.raises(ValueError, match="nenhuma chave de LLM configurada"):
+        Settings(_env_file=None)
+
+
+@pytest.mark.unit
+def test_desenvolvimento_sobe_sem_chave_de_llm() -> None:
+    """O guarda é só de produção: dev e CI rodam com FakeLLMProvider."""
+    cfg = Settings(_env_file=None, app_env=AppEnv.DEVELOPMENT)
+
+    assert cfg.llm_provider_efetivo == "fake"
+
+
+@pytest.mark.unit
+def test_freios_de_gasto_tem_defaults_conservadores() -> None:
+    """Kill switch fechado, teto por rodada e orçamento mensal — ticket 08."""
+    cfg = Settings(_env_file=None, app_env=AppEnv.TEST)
+
+    assert cfg.llm_dispatch_enabled is False
+    assert cfg.llm_max_calls_per_run == 60
+    assert cfg.llm_monthly_budget_usd == 25.0
 
 
 @pytest.mark.unit

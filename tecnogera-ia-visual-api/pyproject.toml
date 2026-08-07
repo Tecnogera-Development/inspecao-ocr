@@ -31,10 +31,17 @@ dependencies = [
     "tenacity==9.0.0",
     "asyncpg==0.30.0",
     "psycopg2-binary==2.9.10",
+    # SQL Server (Sisloc, somente leitura) — exige msodbcsql18 + unixODBC na imagem.
+    # Ver docs/exploracao/sql-server-driver.md e docs/operations/sql-server.md.
+    "pyodbc==5.3.0",
     "bcrypt>=4.0.0",
     "itsdangerous>=2.1.0",
     "jinja2>=3.1.6",
     "arq>=0.25.0,<1.0",
+    # Excel real (.xlsx) do export da lista de checklists — ver
+    # Não é CSV: o Excel pt-BR
+    # quebra acento e espera separador `;`.
+    "openpyxl>=3.1.5,<4.0",
 ]
 
 [project.optional-dependencies]
@@ -46,6 +53,7 @@ dev = [
     "mypy==1.13.0",
     "types-requests==2.32.0.20241016",
     "types-PyYAML==6.0.12.20240917",
+    "types-openpyxl>=3.1.5,<4.0",
 ]
 
 [tool.setuptools.packages.find]
@@ -54,6 +62,7 @@ include = ["app*"]
 
 [tool.setuptools.package-data]
 "app.profiles" = ["*.yaml"]
+"app.templates.laudo" = ["*.j2", "*.css", "assets/*.png"]
 
 [tool.ruff]
 line-length = 100

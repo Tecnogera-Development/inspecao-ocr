@@ -73,6 +73,74 @@ def test_modelo_desconhecido_usa_sonnet_como_fallback() -> None:
     assert abs(cost_unknown - cost_sonnet) < 1e-9
 
 
+# ── OpenAI (ticket mvp-c54-c57/08) ────────────────────────────────────────────
+
+
+@pytest.mark.unit
+def test_gpt_4_1_mini_bate_com_a_medicao_real_do_ticket_15() -> None:
+    """12.517 tokens in + 292 out em 3 chamadas custaram ≈US$ 0,006.
+
+    Este é o único número de custo REAL do GPT no projeto. Se a tabela de
+    pricing derivar dele, o teto de orçamento passa a frear na hora errada.
+    """
+    cost = compute_cost("gpt-4.1-mini", input_tokens=12_517, output_tokens=292)
+
+    assert cost == pytest.approx(0.005474, abs=1e-6)
+    assert round(cost, 3) == 0.005
+
+
+@pytest.mark.unit
+def test_custo_por_imagem_do_parque_projetado() -> None:
+    """~4,2k tokens/imagem → ≈US$ 0,002; 1.113 imagens/mês → ≈US$ 2/mês."""
+    por_imagem = compute_cost("gpt-4.1-mini", input_tokens=4_200, output_tokens=100)
+
+    assert por_imagem == pytest.approx(0.00184, abs=1e-5)
+    assert 1.5 < por_imagem * 1_113 < 2.5
+
+
+@pytest.mark.unit
+def test_cache_read_da_openai_e_mais_barato() -> None:
+    normal = compute_cost("gpt-4.1-mini", input_tokens=10_000, output_tokens=0)
+    cacheado = compute_cost(
+        "gpt-4.1-mini", input_tokens=0, output_tokens=0, cache_read_tokens=10_000
+    )
+    assert cacheado == pytest.approx(normal / 4)
+
+
+@pytest.mark.unit
+def test_batch_api_da_openai_tambem_leva_50_porcento() -> None:
+    """Metade do custo, 24h de latência — a decisão de usar está no ticket 08."""
+    sync = compute_cost("gpt-4.1-mini", input_tokens=4_200, output_tokens=100)
+    batch = compute_cost("gpt-4.1-mini", input_tokens=4_200, output_tokens=100, batch_mode=True)
+    assert batch == pytest.approx(sync / 2)
+
+
+@pytest.mark.unit
+def test_modelo_gpt_desconhecido_cai_no_mais_caro_da_familia() -> None:
+    """Subestimar custo é o erro perigoso: o teto deixaria passar gasto."""
+    from app.services.cost_calculator import resolve_pricing_model
+
+    assert resolve_pricing_model("gpt-5-turbo-vision") == "gpt-4o"
+    desconhecido = compute_cost("gpt-5-turbo-vision", input_tokens=1_000, output_tokens=0)
+    barato = compute_cost("gpt-4.1-mini", input_tokens=1_000, output_tokens=0)
+    assert desconhecido > barato
+
+
+@pytest.mark.unit
+def test_modelo_conhecido_nao_sofre_fallback() -> None:
+    from app.services.cost_calculator import resolve_pricing_model
+
+    assert resolve_pricing_model("gpt-4.1-mini") == "gpt-4.1-mini"
+    assert resolve_pricing_model("claude-haiku-4-5") == "claude-haiku-4-5"
+
+
+@pytest.mark.unit
+def test_modelo_sem_familia_reconhecivel_cai_no_sonnet() -> None:
+    from app.services.cost_calculator import resolve_pricing_model
+
+    assert resolve_pricing_model("llama-3-70b") == "claude-sonnet-4-6"
+
+
 # ── LLMUsage ──────────────────────────────────────────────────────────────────
 
 

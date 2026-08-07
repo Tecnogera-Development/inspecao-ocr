@@ -23,7 +23,6 @@ env/
 .env.*
 !.env.example
 !.env.deploy.example
-!.env.production.example
 
 # IDE
 .vscode/
@@ -57,3 +56,7 @@ checklists_local/
 
 # Docker
 .docker/
+
+# Env específico do cliente — contém segredos reais (Dropbox, LLM, SQL Server)
+env.tecnogera
+env.*.local

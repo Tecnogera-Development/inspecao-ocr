@@ -11,7 +11,7 @@ from __future__ import annotations
 
 import base64
 import random
-from typing import Any, Literal
+from typing import TYPE_CHECKING, Any, Literal
 
 from pydantic import BaseModel, Field, field_validator, model_validator
 from tenacity import Retrying, retry_if_exception, stop_after_attempt, wait_exponential
@@ -19,6 +19,10 @@ from tenacity import Retrying, retry_if_exception, stop_after_attempt, wait_expo
 from app.core.logging import get_logger
 from app.services.cost_calculator import LLMUsage
 from app.services.dropbox import parse_filename
+
+if TYPE_CHECKING:
+    from app.core.config import Settings
+    from app.services.view_inspection import InspecaoVista
 
 _log = get_logger(__name__)
 
@@ -469,6 +473,27 @@ class FakeLLMProvider:
             matched_reference_index=0 if references else None,
         )
 
+    def inspect_view(self, image_bytes: bytes, campo: str) -> "InspecaoVista":
+        """Laudo sintético de uma vista — a suíte inteira roda por aqui.
+
+        Sempre ``conforme``, e é justamente por isso que a produção recusa
+        subir com este provider (ver ``Settings._validar_producao``): na tela
+        do operador este laudo é indistinguível de um real.
+        """
+        from app.services.view_inspection import InspecaoVista  # noqa: PLC0415
+
+        return InspecaoVista(
+            campo=campo,
+            processavel=True,
+            conteudo_observado=f"Laudo sintético (FakeLLMProvider) para {campo}.",
+            vista_confere=True,
+            conformidade="conforme",
+            achados=[],
+            model_version="fake-inspecao-1.0",
+            input_tokens=0,
+            output_tokens=0,
+        )
+
     def generate_report(
         self,
         classifications: list[ClassificationResult],
@@ -875,6 +900,57 @@ class AnthropicProvider:
             matched_reference_index=raw.get("matched_reference_index"),
         )
 
+    def inspect_view(self, image_bytes: bytes, campo: str) -> "InspecaoVista":
+        """Inspeção de UMA vista pela taxonomia v0.2 (ticket mvp-c54-c57/08).
+
+        Existe como plano B: o provider decidido é a OpenAI, mas
+        ``_get_llm_provider`` cai aqui se só a chave Anthropic estiver
+        configurada. Sem este método, essa queda transformaria toda a esteira
+        em falha por vista — barulhenta, mas inútil.
+        """
+        from app.services import view_inspection as vi  # noqa: PLC0415
+
+        response = self._call_with_retry(
+            model=self._model,
+            max_tokens=1024,
+            system=[
+                {
+                    "type": "text",
+                    "text": vi.SYSTEM_PROMPT_V02,
+                    # O prompt da taxonomia é ~2,5k tokens e é idêntico em toda
+                    # chamada: cacheá-lo é o único ganho de custo de graça aqui.
+                    "cache_control": {"type": "ephemeral"},
+                }
+            ],
+            messages=[
+                {
+                    "role": "user",
+                    "content": [
+                        {"type": "text", "text": vi.mensagem_usuario(campo)},
+                        _image_block(image_bytes),
+                    ],
+                }
+            ],
+            tools=[
+                {
+                    "name": vi.TOOL_NAME,
+                    "description": "Emite o laudo de inspeção visual de uma foto de gerador.",
+                    "input_schema": vi.tool_parameters(),
+                }
+            ],
+            tool_choice={"type": "tool", "name": vi.TOOL_NAME},
+        )
+        self._log_usage(response.usage, "inspect_view")
+
+        tool_block = next(b for b in response.content if b.type == "tool_use")
+        inspecao = vi.parse_inspecao(
+            dict(tool_block.input), campo=campo, model_version=self._model
+        )
+        usage = response.usage
+        inspecao.input_tokens = int(getattr(usage, "input_tokens", 0) or 0)
+        inspecao.output_tokens = int(getattr(usage, "output_tokens", 0) or 0)
+        return inspecao
+
     def generate_report(
         self,
         classifications: list[ClassificationResult],
@@ -1134,7 +1210,9 @@ class OpenAIProvider:
             matched_reference_index=raw.get("matched_reference_index"),
         )
 
-    def _log_usage_openai(self, completion: Any) -> None:  # noqa: ANN401
+    def _log_usage_openai(  # noqa: ANN401
+        self, completion: Any, *, context: str = "classify_event"
+    ) -> None:
         usage = getattr(completion, "usage", None)
         if usage is None:
             return
@@ -1143,14 +1221,91 @@ class OpenAIProvider:
         self.accumulated_usage.accumulate(input_tokens=inp, output_tokens=out)
         _log.info(
             "openai_usage",
-            context="classify_event",
+            context=context,
             input_tokens=inp,
             output_tokens=out,
             model=self._model,
         )
+
+    def inspect_view(self, image_bytes: bytes, campo: str) -> "InspecaoVista":
+        """Inspeção de UMA vista pela taxonomia v0.2 (ticket mvp-c54-c57/08).
+
+        Uma chamada por vista, de propósito: o achado fica atribuível à vista
+        que o gerou e uma vista que falha não derruba as outras. É o formato
+        que o ticket 15 validou por API (3 chamadas, ~4,2k tokens de entrada
+        por imagem, ≈US$ 0,002 cada).
+        """
+        import json as _json  # noqa: PLC0415
+
+        from app.services import view_inspection as vi  # noqa: PLC0415
+
+        completion = self._client.chat.completions.create(
+            model=self._model,
+            messages=[
+                {"role": "system", "content": vi.SYSTEM_PROMPT_V02},
+                {
+                    "role": "user",
+                    "content": [
+                        {"type": "text", "text": vi.mensagem_usuario(campo)},
+                        _oai_image_block(image_bytes),
+                    ],
+                },
+            ],
+            tools=[
+                {
+                    "type": "function",
+                    "function": {
+                        "name": vi.TOOL_NAME,
+                        "description": (
+                            "Emite o laudo de inspeção visual de uma foto de gerador."
+                        ),
+                        "parameters": vi.tool_parameters(),
+                    },
+                }
+            ],
+            tool_choice={"type": "function", "function": {"name": vi.TOOL_NAME}},
+            max_tokens=1024,
+        )
+        self._log_usage_openai(completion, context="inspect_view")
+
+        tool_call = completion.choices[0].message.tool_calls[0]
+        inspecao = vi.parse_inspecao(
+            _json.loads(tool_call.function.arguments),
+            campo=campo,
+            model_version=self._model,
+        )
+        usage = getattr(completion, "usage", None)
+        inspecao.input_tokens = int(getattr(usage, "prompt_tokens", 0) or 0)
+        inspecao.output_tokens = int(getattr(usage, "completion_tokens", 0) or 0)
+        return inspecao
 
     def classify_image(self, *args: Any, **kwargs: Any) -> ClassificationResult:  # noqa: ANN401
         raise NotImplementedError("OpenAIProvider.classify_image não implementado (Sisloc usa Anthropic)")
 
     def generate_report(self, *args: Any, **kwargs: Any) -> str:  # noqa: ANN401
         raise NotImplementedError("OpenAIProvider.generate_report não implementado (Sisloc usa Anthropic)")
+
+
+def get_llm_provider(settings: "Settings") -> Any:  # noqa: ANN401
+    """Instancia o provider LLM a partir da configuração — **ponto único**.
+
+    Precedência: OpenAI (decidida pela Tecnogera) → Anthropic (plano B, chave
+    validada) → Fake. Duplicar essa escolha em cada consumidor é como um fluxo
+    acaba usando um provider e outro fluxo usa outro sem ninguém notar; por
+    isso ``app/tasks/event_tasks.py`` e a esteira de checklists chamam esta
+    função, e ``Settings.llm_provider_efetivo`` espelha a mesma precedência
+    sem instanciar nada (o guarda-corpo de produção precisa decidir no boot).
+    """
+    if settings.openai_api_key:
+        return OpenAIProvider(
+            api_key=settings.openai_api_key.get_secret_value(),
+            model=settings.openai_model,
+        )
+    if settings.anthropic_api_key:
+        _log.warning("llm_provider_fallback_anthropic", reason="openai_api_key_missing")
+        return AnthropicProvider(
+            api_key=settings.anthropic_api_key.get_secret_value(),
+            model=settings.anthropic_model,
+        )
+    _log.warning("llm_provider_fallback_fake", reason="no_llm_api_key")
+    return FakeLLMProvider()

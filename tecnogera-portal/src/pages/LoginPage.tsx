@@ -1,11 +1,17 @@
 import { apiClient } from '@/api/client'
 import { useQueryClient } from '@tanstack/react-query'
 import { useState } from 'react'
-import { useNavigate } from 'react-router-dom'
+import { useLocation, useNavigate } from 'react-router-dom'
 
 export function LoginPage() {
   const navigate = useNavigate()
+  const location = useLocation()
   const queryClient = useQueryClient()
+  // Sinalizado pela DefinirSenhaPage após sucesso (ticket usuarios-portal/04)
+  // — fecha o loop "defini a senha, e agora?" sem inventar texto de domínio.
+  const senhaDefinida = Boolean(
+    (location.state as { senhaDefinida?: boolean } | null)?.senhaDefinida,
+  )
   const [email, setEmail] = useState('')
   const [password, setPassword] = useState('')
   const [error, setError] = useState<string | null>(null)
@@ -48,6 +54,14 @@ export function LoginPage() {
         <h1 className="text-center text-xl font-semibold text-slate-700">
           Entre com seu email corporativo
         </h1>
+        {senhaDefinida && (
+          <output
+            data-testid="aviso-senha-definida"
+            className="block rounded-md bg-green-50 px-3 py-2 text-center text-sm text-green-700"
+          >
+            Senha definida com sucesso. Entre com suas novas credenciais.
+          </output>
+        )}
         <form onSubmit={handleSubmit} className="space-y-4">
           <div className="space-y-1">
             <label htmlFor="email" className="text-sm font-medium">

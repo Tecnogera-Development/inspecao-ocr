@@ -3,6 +3,23 @@
 # Estrutura: um perfil por FORMULÁRIO Sisloc (não por tipo de equipamento).
 # O conjunto de campos `cN` é definido pelo formulário (F013, F180, etc.).
 #
+# ⚠️ 2026-08-02 — A tabela que a Tecnogera passou na reunião de 2026-07-30
+# (c54=FOTO LATERAL DIREITA, c55=LATERAL ESQUERDA, c56=FRONTAL, c57=TRASEIRA,
+# ids 49/50/51/52) **NÃO é do F013 — é do F180-VISITA GMG_REV04**, e os mesmos
+# códigos valem também no F038 (pré-locação de gerador) e no F277 (liberação de
+# plataforma). No F013 os mesmos códigos são outra coisa: `c55` é a plaqueta de
+# dados do grupo gerador e `c57` é o carregador de bateria dentro do painel;
+# `c54` e `c56` nem existem no F013.
+#
+# ⚠️ O F180 parou de emitir `c57` entre set e out/2025 — hoje só entrega 3 das
+# 4 vistas. O filtro estrito c54∧c55∧c56∧c57 hoje só casa F038 e F277.
+#
+# O dicionário oficial campo→rótulo continua inacessível: a credencial
+# `maisacesso_read` só enxerga a view `dbo.checklist_produto`, que não tem
+# granularidade de campo. Rótulos abaixo vêm da tabela da Tecnogera +
+# inspeção das imagens reais. Detalhes, queries, censo e pedido de acesso em
+# `docs/exploracao/dicionario-campos-sisloc.md`.
+#
 # Cobertura dos 5 perfis no parque TECG (316 geradores Tecnogera):
 #   F013 liberação      —     ┐ dataset original: 7 amostras (POPULADO)
 #   F180 visita        25%   │ dataset original: 2 amostras (PRELIMINAR)
@@ -20,12 +37,24 @@
 #   F268 CORRETIVA S/ FOTO    1%
 #   F088 RELATÓRIO DIÁRIO     <1%
 #
-# 13% dos checklists no DB têm formulário VAZIO — pipeline trata como
-# "desconhecido" e cai em fallback (cluster por assinatura de campos).
+# 36% dos checklists no DB têm formulário VAZIO (99.336 de 276.005, medido em
+# 2026-08-02 na dbo.checklist_produto — o número antigo de 13% estava errado).
+# Pipeline trata como "desconhecido" e cai em fallback (cluster por assinatura
+# de campos).
+#
+# Formulários com volume relevante que NÃO estão mapeados aqui (medido no DB
+# em 2026-08-02): F066 transporte expedição (23k), F277 liberação plataforma
+# (19k), F266 transporte retorno (18k), F284 inspeção retorno outros (12k),
+# F310 preventiva PEMT (9k), F269 checklist geral (6,7k), F254 inspeção de
+# retorno (5,6k), F038 pré-locação de gerador (5,2k).
 #
 # Thresholds: obrigatório ≥ 6/N (86%), comum ≥ 5/N (71%).
-# Descrições `cN` pendentes: aguardando resposta do Edelmar sobre tabela
-# formulario_campo no Sisloc. Enquanto isso, usar Vision LLM probing.
+# Descrições `cN` pendentes: o dicionário oficial do Sisloc NÃO é acessível com
+# a credencial read-only atual (só a view dbo.checklist_produto foi liberada).
+# É preciso um GRANT nas tabelas de definição de campo ou uma exportação do
+# Edelmar — ver `docs/exploracao/dicionario-campos-sisloc.md` §8.
+# Os rótulos marcados `[visual]` abaixo vêm de inspeção das imagens reais em
+# `data/checklists/`, não do dicionário Sisloc.
 
 profiles:
 
@@ -35,7 +64,10 @@ profiles:
   # 7 amostras reais. Thresholds: obrigatório ≥6/7, comum ≥5/7.
   # Fonte: dataset IAVS-005 (267699, 269762, 276800, 277861, 278139,
   #        278154, 278365). Todos patrimônio TECG, filiais SP-SBC e MG-CGE.
-  # Descrições TODO aguardam dicionário Sisloc (Edelmar) ou Vision LLM.
+  # Confirmado no DB em 2026-08-02: os 7 são `F013 - LIBERAÇÃO DE GERADOR`.
+  # 7.542 checklists F013 no total, 21 filiais, desde 2022-08.
+  # Nenhuma das 7 amostras tem c54 ou c56 — o F013 provavelmente não tem esses
+  # campos. Descrições TODO aguardam dicionário Sisloc (ver header).
   F013_liberacao_gerador:
     descricao: "Liberação de gerador pré-locação — checklist completo (Sisloc F013 - LIBERAÇÃO DE GERADOR)"
     campos:
@@ -76,13 +108,20 @@ profiles:
         obrigatorio: true
         comum: false
       - field_name: c55
-        legivel: Campo c55
-        descricao: "TODO"
+        legivel: Plaqueta de dados do grupo gerador
+        descricao: "[visual] Close da placa de identificação ISO 8528 do conjunto
+          (fabricante, modelo, nº de série, kVA, tensão, rpm) — normalmente com a
+          etiqueta de serviço Tecnogera e a fita com data de megagem ao lado.
+          NÃO é vista lateral esquerda: a tabela da reunião de 2026-07-30 é de
+          outro formulário. Confirmado em 8 imagens reais (2026-08-02)."
         obrigatorio: true
         comum: false
       - field_name: c57
         legivel: Painel elétrico de comando
-        descricao: "Painel aberto evidenciando disjuntores e cablagem."
+        descricao: "[visual] Interior do painel elétrico — carregador de bateria
+          (Murphy SNTL150P, DSE BC2405), AVR, bateria e cablagem. NÃO é vista
+          traseira. A semente escrita à mão estava correta; confirmada em 8
+          imagens reais (2026-08-02)."
         obrigatorio: true
         comum: false
       - field_name: c60
@@ -265,6 +304,11 @@ profiles:
   # NÃO confiáveis. Campos listados são os observados em ambas as amostras.
   # F180 é flexível: técnico foto o que encontra em campo — alta variância
   # esperada. 278724 teve 22 campos, 278749 teve 12 campos (mesmo formulário).
+  # Confirmado no DB em 2026-08-02: ambos são `F180-VISITA GMG_REV04`.
+  # 16.374 checklists F180 no total, 21 filiais, desde 2022-08.
+  # ESTE é o formulário da tabela de 4 vistas da Tecnogera (ver c54–c57 abaixo).
+  # Censo real (8.141 F180 no Dropbox de MG-CGE + SP-SBC) mostra que as 2
+  # amostras antigas eram atípicas: 92% dos F180 têm c54, 91% c55, 90% c56.
   F180_visita_gmg:
     descricao: "Visita técnica em GMG durante locação (Sisloc F180-VISITA GMG_REV04)"
     campos:
@@ -380,19 +424,39 @@ profiles:
         descricao: "TODO — só 278749"
         obrigatorio: false
         comum: false
+      # --- AS 4 VISTAS DA TABELA DA TECNOGERA (2026-07-30) ---
+      # Confirmado em 2026-08-02: é AQUI que a tabela da reunião se aplica.
+      # Censo de 8.141 checklists F180 no Dropbox (MG-CGE + SP-SBC):
+      # c54 7.352 · c55 7.212 · c56 7.060 · c57 5.490 · as 4 juntas 4.796 (59%).
+      # ⚠️ c57 foi DESCONTINUADO no F180 entre set e out/2025 (302/302 em
+      #    jun/2025 → 1/306 em out/2025 → 0 desde nov/2025). Hoje o F180
+      #    entrega só 3 vistas.
       - field_name: c54
-        legivel: Campo c54
-        descricao: "TODO — só 278749"
+        legivel: Foto lateral direita
+        descricao: "Vista lateral do conjunto (cabine acústica) — lado direito.
+          Rótulo da tabela oficial da Tecnogera, confirmado visualmente em
+          amostras F180 (213337, 212997, 278749)."
         obrigatorio: false
-        comum: false
+        comum: true
       - field_name: c55
-        legivel: Campo c55
-        descricao: "TODO — só 278749"
+        legivel: Foto lateral esquerda
+        descricao: "Vista lateral do conjunto pelo lado oposto ao c54. Atenção:
+          no F013 o mesmo código `c55` é a plaqueta de dados do gerador — prova
+          de que `cN` é por formulário."
         obrigatorio: false
-        comum: false
+        comum: true
       - field_name: c56
-        legivel: Campo c56
-        descricao: "TODO — só 278749"
+        legivel: Foto frontal
+        descricao: "Vista da face frontal (topo curto) da cabine. Em alguns
+          checklists o técnico fotografa a porta do painel de comando aberta,
+          que fica nessa face (ex.: 278749)."
+        obrigatorio: false
+        comum: true
+      - field_name: c57
+        legivel: Foto traseira
+        descricao: "Vista da face traseira da cabine. ⚠️ DESCONTINUADO no F180
+          desde out/2025 — nenhum checklist F180 emitiu c57 a partir de
+          nov/2025. Mantido aqui para o backfill histórico."
         obrigatorio: false
         comum: false
       - field_name: c135

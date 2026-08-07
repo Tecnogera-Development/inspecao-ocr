@@ -35,7 +35,9 @@ function mockFetchOnce(status: number, body: unknown = {}) {
   return fetchMock
 }
 
-function renderLoginPage(initialEntries = ['/login']) {
+function renderLoginPage(
+  initialEntries: Array<string | { pathname: string; state?: unknown }> = ['/login'],
+) {
   const queryClient = new QueryClient({
     defaultOptions: { queries: { retry: false } },
   })
@@ -91,6 +93,16 @@ describe('LoginPage', () => {
     await waitFor(() => {
       expect(screen.getByText(/email ou senha inválidos/i)).toBeInTheDocument()
     })
+  })
+
+  it('shows a success banner when redirected from DefinirSenhaPage', () => {
+    renderLoginPage([{ pathname: '/login', state: { senhaDefinida: true } }])
+    expect(screen.getByTestId('aviso-senha-definida')).toHaveTextContent(/senha definida/i)
+  })
+
+  it('does not show the success banner on a plain visit', () => {
+    renderLoginPage()
+    expect(screen.queryByTestId('aviso-senha-definida')).not.toBeInTheDocument()
   })
 
   it('disables button while submitting', async () => {

@@ -154,6 +154,60 @@ class TestValidateTechnical:
         assert result.reason == ValidationReason.FOCO_INADEQUADO
 
 
+# ── calibração com imagens reais (ticket mvp-c54-c57/08) ─────────────────────
+
+@pytest.mark.unit
+class TestCalibracaoComParqueReal:
+    """Medido em 562 imagens de ``data/checklists/`` — ver docstring do módulo."""
+
+    svc = EventValidationService()
+
+    @pytest.mark.parametrize(
+        ("w", "h"),
+        [(720, 1280), (960, 1280), (961, 1280), (1280, 960)],
+    )
+    def test_resolucoes_reais_do_sisloc_passam(self, w: int, h: int) -> None:
+        """As 4 resoluções do corpus. A regra antiga reprovava 79,4% delas.
+
+        A foto de campo é RETRATO (720×1280, 960×1280): comparar largura contra
+        o lado longo marcava todo `c54`–`c57` como `resolucao_baixa` e a esteira
+        inteira entregaria tela vazia sem gastar um token.
+        """
+        result = self.svc.validate_technical(_make_jpeg_bytes(w, h, sharp=True))
+        assert result.processable is True
+
+    def test_retrato_pequeno_demais_continua_reprovado(self) -> None:
+        """Agnóstico de orientação não é 'aceita qualquer coisa'."""
+        result = self.svc.validate_technical(_make_jpeg_bytes(480, 640, sharp=True))
+        assert result.processable is False
+        assert result.reason == ValidationReason.RESOLUCAO_BAIXA
+
+    def test_threshold_de_nitidez_esta_na_banda_vazia_medida(self) -> None:
+        """Pior quadro degenerado: 80,4. Foto real mais fraca: 152,7."""
+        assert 80.4 < EventValidationService.LAPLACIAN_VARIANCE_THRESHOLD < 152.6
+
+    def test_quadro_preto_chapado_e_barrado(self) -> None:
+        """Os dois piores do corpus (variância 34,2 e 35,8) são lente tapada."""
+        img = Image.new("RGB", (960, 1280), color=(2, 2, 2))
+        buf = io.BytesIO()
+        img.save(buf, format="JPEG", quality=95)
+
+        result = self.svc.validate_technical(buf.getvalue())
+
+        assert result.processable is False
+        assert result.reason == ValidationReason.FOCO_INADEQUADO
+
+    def test_foto_nitida_mas_injulgavel_passa_no_gate(self) -> None:
+        """Nitidez NÃO é porteiro suficiente — o modelo é o segundo portão.
+
+        Caso real: o `c57` do checklist 278154 tem variância 636,7 e é inútil
+        por contraluz severo. Este gate a aprova, de propósito; quem a reprova
+        é o modelo, via ``processavel=false`` (taxonomia v0.2 §8).
+        """
+        result = self.svc.validate_technical(_make_jpeg_bytes(960, 1280, sharp=True))
+        assert result.processable is True
+
+
 # ── ValidationResult ─────────────────────────────────────────────────────────
 
 @pytest.mark.unit

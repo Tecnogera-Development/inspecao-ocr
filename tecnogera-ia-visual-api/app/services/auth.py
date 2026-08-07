@@ -15,6 +15,12 @@ def authenticate(db: Session, email: str, password: str) -> User | None:
         return None
     if not user.is_active:
         return None
+    if user.password_hash is None:
+        # Usuário criado mas ainda na janela de primeira senha (ou nunca a
+        # definiu): sem hash não há o que comparar. Sem este corte, o
+        # bcrypt.checkpw abaixo levanta AttributeError e vira 500 em vez de
+        # 401 — é o ponto exato descrito no ticket.
+        return None
     if not bcrypt.checkpw(password.encode(), user.password_hash.encode()):
         return None
     return user

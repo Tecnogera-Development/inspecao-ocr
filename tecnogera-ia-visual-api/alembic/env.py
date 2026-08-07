@@ -18,6 +18,8 @@ from app.db.base import Base  # noqa: E402
 import app.models.pipeline  # noqa: E402, F401  — garante que os modelos estão registrados
 import app.models.event  # noqa: E402, F401
 import app.models.event_pair  # noqa: E402, F401
+import app.models.ingest  # noqa: E402, F401
+import app.models.checklist_analysis  # noqa: E402, F401
 
 target_metadata = Base.metadata
 

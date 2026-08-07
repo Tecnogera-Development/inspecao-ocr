@@ -1,0 +1,457 @@
+/* ============================================================================
+   Laudo de inspeção visual — folha de estilo de IMPRESSÃO (WeasyPrint 63.1)
+   Consumida por laudo.html.j2.
+
+   Escrita para WeasyPrint, não para navegador. Consequências:
+
+   - Layout em <table> com `table-layout: fixed`, não em flex/grid. O WeasyPrint
+     63.1 aceita `display:grid`, mas a implementação é recente e a quebra de
+     página dentro de um grid ainda é o caminho menos batido. `break-inside:
+     avoid` num <tr> é o mecanismo mais antigo e mais previsível da engine.
+   - Fonte "Liberation Sans": é a única sans-serif garantida na imagem Docker
+     (`fonts-liberation`, Dockerfile linhas 19-26 e 52-60). Métrica igual à do
+     Arial, então o layout não anda se um dia rodar em outra máquina.
+   - Todas as medidas em mm/pt. `px` em página impressa é armadilha.
+   - Cor NUNCA é o único portador de informação: o cliente imprime este PDF em
+     laser monocromático. Todo estado tem rótulo textual ao lado do sinal
+     colorido, e as tarjas mudam de espessura além de mudar de cor.
+   ========================================================================== */
+
+/* ─── Página ─────────────────────────────────────────────────────────────── */
+
+@page {
+    size: A4;
+    margin: 15mm 15mm 18mm 15mm;
+
+    /* Cabeçalho corrido: só a partir da página 2. A página 1 tem a capa. */
+    @top-left {
+        content: string(cabecalho-corrido);
+        font-family: "Liberation Sans", "DejaVu Sans", Arial, sans-serif;
+        font-size: 7.5pt;
+        color: #6B6B6B;
+        vertical-align: bottom;
+        padding-bottom: 2mm;
+    }
+    @top-right {
+        content: string(referencia);
+        font-family: "Liberation Sans", "DejaVu Sans", Arial, sans-serif;
+        font-size: 7.5pt;
+        color: #6B6B6B;
+        vertical-align: bottom;
+        padding-bottom: 2mm;
+    }
+
+    /* Declaração curta em TODA página: uma folha solta deste PDF, fotocopiada
+       fora de contexto, continua dizendo que a leitura é automatizada. É a
+       mitigação do risco 1 do mapa que sobrevive ao grampeador. */
+    @bottom-left {
+        content: string(rodape-declaracao);
+        font-family: "Liberation Sans", "DejaVu Sans", Arial, sans-serif;
+        font-size: 7pt;
+        color: #6B6B6B;
+        vertical-align: top;
+        padding-top: 3mm;
+    }
+    @bottom-right {
+        content: "Página " counter(page) " de " counter(pages);
+        font-family: "Liberation Sans", "DejaVu Sans", Arial, sans-serif;
+        font-size: 7pt;
+        color: #6B6B6B;
+        vertical-align: top;
+        padding-top: 3mm;
+    }
+}
+
+@page :first {
+    @top-left { content: none; }
+    @top-right { content: none; }
+}
+
+/* ─── Base ───────────────────────────────────────────────────────────────── */
+
+html {
+    font-family: "Liberation Sans", "DejaVu Sans", Arial, sans-serif;
+    font-size: 9.5pt;
+    line-height: 1.38;
+    color: #1A1A1A;
+}
+
+body { margin: 0; }
+
+/* Portadores de string para as margin boxes. Ficam fora do fluxo visual:
+   o conteúdo é dinâmico (vem do Jinja) mas o CSS continua estático. */
+.string-only {
+    display: block;
+    height: 0;
+    overflow: hidden;
+    font-size: 0;
+    line-height: 0;
+}
+.s-cabecalho { string-set: cabecalho-corrido content(); }
+.s-referencia { string-set: referencia content(); }
+.s-rodape { string-set: rodape-declaracao content(); }
+
+/* Paleta. Laranja = marca (#E8721F, amostrado do próprio logo).
+   Os três estados foram escurecidos até passarem 4.5:1 sobre o próprio fundo
+   claro, porque este documento é lido impresso e às vezes fotocopiado. */
+:root {
+    --marca: #E8721F;
+    --tinta: #1A1A1A;
+    --tinta2: #565656;
+    --regua: #D6D6D6;
+    --nc: #A5231C;        /* não conforme  */
+    --nc-fundo: #FBEDEC;
+    --inc: #97600A;       /* inconclusivo  */
+    --inc-fundo: #FCF3E3;
+    --ok: #1B6340;        /* conforme      */
+    --ok-fundo: #ECF5F0;
+}
+
+/* ─── Capa (página 1) ────────────────────────────────────────────────────── */
+
+table.capa {
+    width: 100%;
+    border-collapse: collapse;
+    table-layout: fixed;
+    margin-bottom: 3mm;
+}
+table.capa td { vertical-align: bottom; padding: 0; }
+td.capa-marca { width: 55mm; }
+td.capa-marca img { width: 46mm; display: block; }
+td.capa-titulo { text-align: right; }
+
+h1 {
+    font-size: 16pt;
+    line-height: 1.1;
+    margin: 0;
+    letter-spacing: 0.2pt;
+    font-weight: bold;
+}
+p.capa-ref {
+    margin: 1.2mm 0 0;
+    font-size: 8pt;
+    color: var(--tinta2);
+}
+
+hr.regua-marca {
+    border: none;
+    border-top: 1.1mm solid var(--marca);
+    margin: 2.5mm 0 4mm;
+}
+
+/* ─── Faixa de identificação ─────────────────────────────────────────────── */
+
+table.identificacao {
+    width: 100%;
+    border-collapse: collapse;
+    table-layout: fixed;
+    margin-bottom: 4mm;
+    font-size: 9pt;
+}
+table.identificacao td {
+    padding: 0 4mm 0 0;
+    vertical-align: top;
+    border-right: 0.2mm solid var(--regua);
+}
+table.identificacao td:last-child { border-right: none; padding-right: 0; }
+table.identificacao td + td { padding-left: 4mm; }
+.rot {
+    display: block;
+    font-size: 6.8pt;
+    letter-spacing: 0.5pt;
+    text-transform: uppercase;
+    color: var(--tinta2);
+    margin-bottom: 0.4mm;
+}
+.val { display: block; font-weight: bold; }
+
+/* ─── Veredito ───────────────────────────────────────────────────────────── */
+
+.veredito {
+    border-left: 3.5mm solid var(--tinta2);
+    background: #F4F4F4;
+    padding: 3mm 4mm;
+    margin-bottom: 4mm;
+    break-inside: avoid;
+}
+.veredito .estado {
+    font-size: 13pt;
+    font-weight: bold;
+    line-height: 1.15;
+    margin: 0;
+    letter-spacing: 0.3pt;
+}
+.veredito .resumo { margin: 1.2mm 0 0; font-size: 9pt; }
+.veredito .qualifica { margin: 1.2mm 0 0; font-size: 8.2pt; color: var(--tinta2); }
+
+.veredito.e-nao-conforme { border-left-color: var(--nc); background: var(--nc-fundo); }
+.veredito.e-nao-conforme .estado { color: var(--nc); }
+.veredito.e-inconclusivo { border-left-color: var(--inc); background: var(--inc-fundo); }
+.veredito.e-inconclusivo .estado { color: var(--inc); }
+.veredito.e-conforme { border-left-color: var(--ok); background: var(--ok-fundo); }
+.veredito.e-conforme .estado { color: var(--ok); }
+
+/* ─── Avisos (multi-ativo, vista ausente) ────────────────────────────────── */
+
+.aviso {
+    border: 0.3mm solid var(--inc);
+    border-left-width: 2mm;
+    background: var(--inc-fundo);
+    padding: 2.4mm 3mm;
+    margin-bottom: 4mm;
+    font-size: 8.4pt;
+    break-inside: avoid;
+}
+.aviso .aviso-titulo {
+    display: block;
+    font-weight: bold;
+    text-transform: uppercase;
+    font-size: 7pt;
+    letter-spacing: 0.5pt;
+    color: var(--inc);
+    margin-bottom: 0.8mm;
+}
+
+/* ─── Títulos de seção ───────────────────────────────────────────────────── */
+
+h2 {
+    font-size: 9.5pt;
+    text-transform: uppercase;
+    letter-spacing: 0.8pt;
+    margin: 4mm 0 2.2mm;
+    padding-bottom: 1mm;
+    border-bottom: 0.3mm solid var(--tinta);
+    break-after: avoid;
+}
+h2 .contagem { float: right; font-weight: normal; color: var(--tinta2); letter-spacing: 0; text-transform: none; }
+
+/* Quebra DELIBERADA entre o registro fotográfico e o detalhamento.
+   Sem ela, o primeiro achado sobra no pé da página 1 e o segundo cai na 2 —
+   uma seção partida no meio, que é o pior dos dois mundos. Com ela, o
+   documento tem duas páginas de função clara: a 1 é "o que se viu", a 2 é "o
+   que se concluiu". Só é aplicada quando existe o que detalhar; o laudo
+   conforme não recebe a classe e fecha em uma página. */
+h2.quebra-parecer { break-before: page; margin-top: 0; }
+
+/* ─── Bloco de equipamento ───────────────────────────────────────────────── */
+
+table.equipamento {
+    width: 100%;
+    border-collapse: collapse;
+    table-layout: fixed;
+    font-size: 8.6pt;
+}
+table.equipamento td {
+    padding: 1.2mm 4mm 1.2mm 0;
+    vertical-align: top;
+    border-bottom: 0.2mm solid #EDEDED;
+    width: 33.33%;
+}
+table.equipamento tr:last-child td { border-bottom: none; }
+
+/* ─── Registro fotográfico — VARIANTE A (grade 2x2) ──────────────────────── */
+
+table.grade { width: 100%; border-collapse: collapse; table-layout: fixed; }
+table.grade tr { break-inside: avoid; }
+table.grade td { width: 50%; vertical-align: top; padding: 0 3mm 4mm 0; }
+table.grade td + td { padding: 0 0 4mm 3mm; }
+
+.moldura { border: 0.25mm solid var(--regua); break-inside: avoid; }
+.moldura.m-nao-conforme { border-color: var(--nc); border-width: 0.6mm; }
+.moldura.m-inconclusivo { border-color: var(--inc); border-width: 0.6mm; }
+
+/* A caixa da foto tem altura fixa e a imagem é encaixada por `object-fit:
+   contain`. É o que faz retrato (720x1280) e paisagem (1280x960) conviverem
+   na mesma grade sem esticar nem cortar o equipamento. O fundo cinza aparece
+   como pilar lateral no retrato — de propósito: molduras de tamanhos
+   diferentes desalinhariam a grade e fariam o documento parecer torto. */
+.foto-caixa {
+    height: 43mm;
+    background: #ECECEC;
+    position: relative;
+    overflow: hidden;
+}
+.foto-caixa img {
+    width: 100%;
+    height: 100%;
+    object-fit: contain;
+    object-position: center;
+    display: block;
+}
+.foto-vazia {
+    /* border-box porque a moldura vazia tem padding para centrar o texto: sem
+       isso ela fica 18mm mais alta que a moldura com foto e a grade sai torta,
+       justo na vista que já é a exceção. */
+    box-sizing: border-box;
+    height: 43mm;
+    background: repeating-linear-gradient(
+        45deg, #F4F4F4, #F4F4F4 2mm, #EAEAEA 2mm, #EAEAEA 4mm
+    );
+    text-align: center;
+    color: var(--tinta2);
+    font-size: 8pt;
+    padding-top: 18mm;
+}
+.selo {
+    position: absolute;
+    left: 0;
+    right: 0;
+    bottom: 0;
+    padding: 1.2mm 2mm;
+    font-size: 7.4pt;
+    font-weight: bold;
+    text-transform: uppercase;
+    letter-spacing: 0.4pt;
+    color: #FFFFFF;
+    background: var(--inc);
+}
+
+.legenda {
+    padding: 1.6mm 2.4mm 2mm;
+    border-top: 0.25mm solid var(--regua);
+}
+.legenda .vista {
+    font-weight: bold;
+    font-size: 8.6pt;
+    display: block;
+}
+.legenda .estado-vista { font-size: 8pt; display: block; margin-top: 0.5mm; }
+.legenda .estado-vista.v-nao-conforme { color: var(--nc); font-weight: bold; }
+.legenda .estado-vista.v-inconclusivo { color: var(--inc); font-weight: bold; }
+.legenda .estado-vista.v-conforme { color: var(--ok); }
+.legenda .estado-vista.v-ausente { color: var(--tinta2); font-style: italic; }
+.legenda .detalhe { font-size: 7.6pt; color: var(--tinta2); display: block; margin-top: 0.5mm; }
+
+/* Destaque opcional: a vista com achado ocupa a linha inteira (opcoes.destaque_achado) */
+table.grade tr.linha-destaque td { width: 100%; padding: 0 0 5mm 0; }
+tr.linha-destaque .foto-caixa { height: 62mm; }
+
+/* ─── Registro fotográfico — VARIANTE B (dossiê, uma vista por linha) ────── */
+
+table.dossie { width: 100%; border-collapse: collapse; table-layout: fixed; }
+table.dossie tr { break-inside: avoid; }
+table.dossie td { vertical-align: top; padding: 0 0 5mm 0; }
+table.dossie td.d-foto { width: 74mm; padding-right: 5mm; }
+table.dossie td.d-laudo { padding-top: 0.5mm; }
+table.dossie .foto-caixa { height: 52mm; }
+table.dossie .foto-vazia { height: 52mm; padding-top: 23mm; }
+
+.d-laudo .vista-nome {
+    font-size: 10pt;
+    font-weight: bold;
+    margin: 0 0 1mm;
+    padding-bottom: 1mm;
+    border-bottom: 0.25mm solid var(--regua);
+}
+.d-laudo .linha { margin: 0 0 0.8mm; font-size: 8.4pt; }
+.d-laudo .linha .rot-inline {
+    display: inline-block;
+    min-width: 20mm;
+    color: var(--tinta2);
+    font-size: 7.6pt;
+    text-transform: uppercase;
+    letter-spacing: 0.3pt;
+}
+
+/* ─── Prosa da IA ────────────────────────────────────────────────────────── */
+
+/* A observação escrita pelo modelo fica visualmente cercada, sempre com o
+   mesmo rótulo. É o que separa "a leitura automática estimou 30 cm" de "a
+   Tecnogera afirma 30 cm" — decisão da definição de produto, materializada aqui. */
+.leitura {
+    border-left: 0.6mm solid var(--regua);
+    padding: 0.6mm 0 0.6mm 2.6mm;
+    margin: 1.4mm 0 0;
+    font-size: 8.4pt;
+    font-style: italic;
+    color: #333333;
+}
+.leitura .marcador {
+    display: block;
+    font-style: normal;
+    font-size: 6.6pt;
+    letter-spacing: 0.5pt;
+    text-transform: uppercase;
+    color: var(--tinta2);
+    margin-bottom: 0.4mm;
+}
+
+/* ─── Achados ────────────────────────────────────────────────────────────── */
+
+.achado {
+    border: 0.25mm solid var(--regua);
+    border-left: 2mm solid var(--nc);
+    padding: 2.4mm 3mm;
+    margin-bottom: 2.6mm;
+    break-inside: avoid;
+}
+.achado.sev-1 { border-left-color: #7A1610; }
+.achado.sev-2 { border-left-color: var(--nc); }
+.achado.sev-3 { border-left-color: #B4691C; }
+.achado.sev-4 { border-left-color: #8A8A8A; }
+
+.achado .cabeca { margin: 0 0 1mm; }
+.achado .num {
+    display: inline-block;
+    min-width: 5.5mm;
+    font-weight: bold;
+    color: var(--tinta2);
+}
+.achado .tipo { font-weight: bold; font-size: 9.5pt; }
+.achado .sev-tag {
+    float: right;
+    font-size: 7.4pt;
+    font-weight: bold;
+    text-transform: uppercase;
+    letter-spacing: 0.4pt;
+    border: 0.25mm solid currentColor;
+    padding: 0.3mm 1.6mm;
+}
+.achado.sev-1 .sev-tag, .achado.sev-2 .sev-tag { color: var(--nc); }
+.achado.sev-3 .sev-tag { color: #8F520E; }
+.achado.sev-4 .sev-tag { color: #5A5A5A; }
+.achado .onde { margin: 0; font-size: 8.2pt; color: var(--tinta2); }
+
+.sem-achado {
+    border: 0.25mm solid var(--ok);
+    border-left-width: 2mm;
+    background: var(--ok-fundo);
+    padding: 2.6mm 3mm;
+    font-size: 9pt;
+    break-inside: avoid;
+}
+/* "Nada encontrado NAS QUE DEU PARA VER" não é verde. A cor neutra evita que o
+   leitor apressado leia meia conformidade como conformidade. */
+.sem-achado.parcial {
+    border-color: #9A9A9A;
+    background: #F4F4F4;
+    margin-bottom: 2.6mm;
+}
+
+/* ─── Declaração final ───────────────────────────────────────────────────── */
+
+.declaracao {
+    margin-top: 4mm;
+    padding-top: 2.6mm;
+    border-top: 0.5mm solid var(--tinta);
+    font-size: 7.3pt;
+    color: #3A3A3A;
+    line-height: 1.32;
+    break-inside: avoid;
+}
+.declaracao h3 {
+    font-size: 8pt;
+    text-transform: uppercase;
+    letter-spacing: 0.6pt;
+    margin: 0 0 1.6mm;
+    color: var(--tinta);
+}
+.declaracao p { margin: 0 0 1.6mm; }
+.declaracao .revisao { font-weight: bold; color: var(--tinta); }
+.declaracao .assinatura {
+    margin-top: 2.4mm;
+    padding-top: 1.6mm;
+    border-top: 0.2mm solid var(--regua);
+    color: var(--tinta2);
+    font-size: 7.2pt;
+}
