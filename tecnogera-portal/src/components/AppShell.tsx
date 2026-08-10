@@ -14,15 +14,27 @@ const navItemClass = ({ isActive }: { isActive: boolean }) =>
       : 'text-slate-600 hover:bg-slate-100 hover:text-slate-900'
   }`
 
-function NavLinks({ onNavigate }: { onNavigate?: () => void }) {
+function NavLinks({ role, onNavigate }: { role?: string; onNavigate?: () => void }) {
   return (
     <>
-      <NavLink to="/avarias" className={navItemClass} onClick={onNavigate}>
-        Avarias
+      {/*
+       * Só Checklists e Usuários no menu (decisão do dev, 2026-08-03). As
+       * rotas /avarias e /relatorios continuam existindo e funcionando por
+       * URL direta — o que saiu foi a oferta no menu, não o código.
+       */}
+      <NavLink to="/checklists" className={navItemClass} onClick={onNavigate}>
+        Checklists
       </NavLink>
-      <NavLink to="/relatorios" className={navItemClass} onClick={onNavigate}>
-        Relatórios
-      </NavLink>
+      {/*
+       * Só existe para admin, lido de `/me`. Esconder aqui NÃO é segurança —
+       * quem garante é o 403 do backend em cada rota de `/usuarios`; isto é
+       * só para não oferecer no menu o que a conta não pode usar.
+       */}
+      {role === 'admin' && (
+        <NavLink to="/usuarios" className={navItemClass} onClick={onNavigate}>
+          Usuários
+        </NavLink>
+      )}
     </>
   )
 }
@@ -76,7 +88,7 @@ export function AppShell() {
           />
         </div>
         <nav className="flex-1 space-y-1 p-3">
-          <NavLinks />
+          <NavLinks role={user?.role} />
         </nav>
         <div className="border-t border-slate-100 p-3">
           <p className="truncate px-3 pb-2 text-xs text-slate-500" title={user?.email}>
@@ -124,7 +136,7 @@ export function AppShell() {
       {menuOpen && (
         <div className="border-b border-slate-200 bg-white p-3 md:hidden">
           <nav className="space-y-1">
-            <NavLinks onNavigate={() => setMenuOpen(false)} />
+            <NavLinks role={user?.role} onNavigate={() => setMenuOpen(false)} />
           </nav>
           <div className="mt-2 border-t border-slate-100 pt-2">
             <p className="truncate px-3 pb-2 text-xs text-slate-500">{user?.email}</p>

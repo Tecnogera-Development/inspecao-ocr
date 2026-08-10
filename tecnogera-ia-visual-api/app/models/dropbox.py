@@ -62,6 +62,25 @@ class ImageMetadata(BaseModel):
     filename: str
     size_bytes: int = Field(..., ge=0)
     parsed: ParsedFilename
+    # Data que o Dropbox atribui ao arquivo. É a base do marco de corte da
+    # ingestão agendada — `parsed.captured_at` vem do nome e pode faltar.
+    server_modified: datetime | None = None
+
+
+class DropboxDelta(BaseModel):
+    """Resultado de uma leitura incremental (``files_list_folder_continue``).
+
+    ``reset=True`` significa que o Dropbox invalidou o cursor e a listagem
+    precisa recomeçar — ver ``DropboxService.list_checklist_delta``.
+    """
+
+    model_config = ConfigDict(frozen=True)
+
+    cursor: str
+    images: list[ImageMetadata] = Field(default_factory=list)
+    reset: bool = False
+    has_more: bool = False
+    ignorados: int = 0
 
 
 class LocalImage(BaseModel):

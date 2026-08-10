@@ -1,6 +1,30 @@
 """BatchPoller — itera jobs pending_batch e retoma o pipeline quando o batch resolve.
 
 Uso: instanciar com db + dropbox + provider e chamar poll_once() a cada tick de cron.
+
+**DORMENTE. Não é usado pela esteira do MVP c54–c57 — decisão do ticket 08.**
+
+A Batch API da OpenAI dá −50%, a esteira roda em cron de 30 min e não tem
+requisito de latência, então tecnicamente qualifica. A conta, com os números
+medidos, é que ela **não compensa**:
+
+* **Economia:** ≈US$ 2/mês → ≈US$ 1/mês. Um dólar por mês.
+* **Custo em latência:** a Batch API promete até 24h. O MVP fecha quando "um
+  operador abre o portal e vê um checklist real e consegue julgar o resultado"
+  — um checklist que chega no dia seguinte destrói o loop de HITL que alimenta
+  o `ground_truth` do contrato.
+* **Custo em complexidade:** máquina de estados `pending_batch`, upload/download
+  de JSONL, reconciliação por requisição, poller próprio e caminho de erro
+  paralelo. Tudo isso é superfície onde um laudo pode sumir em silêncio — e
+  este poller aqui foi escrito para a Anthropic, então nem reaproveita.
+* **Custo no freio de gasto:** ``LLMBudgetGuard`` mede custo *por chamada, antes
+  da próxima*. Em batch o custo só existe 24h depois; o teto de orçamento
+  deixaria de ser freio e viraria relatório.
+
+Reavaliar se o volume passar de ~10.000 imagens/mês (≈9× o parque projetado) ou
+se a Tecnogera pedir backfill do histórico — os 18.338 checklists com as quatro
+vistas são ~55.000 imagens, e aí os 50% valem os 24h de espera.
+``compute_cost(..., batch_mode=True)`` já suporta o desconto quando for a hora.
 """
 
 from __future__ import annotations

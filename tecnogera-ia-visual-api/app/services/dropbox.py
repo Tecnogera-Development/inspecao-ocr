@@ -33,7 +33,14 @@ from app.core.exceptions import (
     ResourceNotFoundError,
 )
 from app.core.logging import get_logger
-from app.models.dropbox import ImageMetadata, LocalImage, ParsedEventFilename, ParsedFilename, UploadedReport
+from app.models.dropbox import (
+    DropboxDelta,
+    ImageMetadata,
+    LocalImage,
+    ParsedEventFilename,
+    ParsedFilename,
+    UploadedReport,
+)
 
 if TYPE_CHECKING:  # pragma: no cover - apenas para tipos
     from collections.abc import Iterable
@@ -457,6 +464,167 @@ class DropboxService:
             paths.append(path)
 
         return paths
+
+    # ── leitura incremental de /Sisloc (ticket mvp-c54-c57/07) ───────────────
+    #
+    # Varrer /Sisloc inteiro custa ~67 min (medido no ticket 01) — não cabe num
+    # cron de 30. O par abaixo faz leitura por **delta de cursor**: o bootstrap
+    # pega o estado atual sem baixar entrada nenhuma, e cada rodada seguinte
+    # recebe só o que mudou. Ambas as chamadas são de leitura pura.
+
+    def latest_checklist_cursor(self, root: str | None = None) -> str:
+        """Cursor do estado ATUAL da raiz, sem listar nada (bootstrap).
+
+        ``files_list_folder_get_latest_cursor`` devolve o marcador do "agora"
+        sem retornar entradas. É o que implementa o marco de corte por ativação:
+        o histórico anterior nunca entra na esteira.
+        """
+        path = self._normalize_root(root or self._root)
+        try:
+            result = self._client.files_list_folder_get_latest_cursor(
+                path, recursive=True, include_deleted=False
+            )
+        except AuthError as exc:
+            raise IntegrationError(
+                "falha de autenticação ao obter cursor do Dropbox",
+                details={"reason": str(exc)},
+            ) from exc
+        except (ApiError, DropboxException) as exc:
+            raise IntegrationError(
+                "falha ao obter cursor da raiz de checklists",
+                details={"path": path, "reason": str(exc)},
+            ) from exc
+        return str(result.cursor)
+
+    def iniciar_listagem_completa(
+        self, root: str | None = None, *, max_pages: int = 20
+    ) -> DropboxDelta:
+        """Começa uma listagem completa da raiz e devolve a primeira fatia.
+
+        Só para backfill deliberado (``CHECKLIST_INGEST_BOOTSTRAP_FULL``). O
+        cursor devolvido continua a listagem nas rodadas seguintes, então o
+        histórico entra em pedaços — nunca numa chamada de 67 minutos.
+        """
+        path = self._normalize_root(root or self._root)
+        try:
+            result = self._client.files_list_folder(path, recursive=True, limit=2000)
+        except AuthError as exc:
+            raise IntegrationError(
+                "falha de autenticação ao listar checklists",
+                details={"reason": str(exc)},
+            ) from exc
+        except (ApiError, DropboxException) as exc:
+            raise IntegrationError(
+                "falha ao listar a raiz de checklists",
+                details={"path": path, "reason": str(exc)},
+            ) from exc
+
+        images, ignorados = self._materialize_delta(result.entries)
+        if not result.has_more:
+            return DropboxDelta(cursor=result.cursor, images=images, ignorados=ignorados)
+
+        seguinte = self.list_checklist_delta(result.cursor, max_pages=max_pages - 1)
+        return DropboxDelta(
+            cursor=seguinte.cursor or result.cursor,
+            images=[*images, *seguinte.images],
+            has_more=seguinte.has_more,
+            ignorados=ignorados + seguinte.ignorados,
+        )
+
+    def list_checklist_delta(self, cursor: str, *, max_pages: int = 100) -> DropboxDelta:
+        """Lê o que mudou desde ``cursor`` e devolve as imagens de checklist.
+
+        Ignora pastas de sistema (qualquer segmento com prefixo ``_``) e nomes
+        fora do padrão do Sisloc. ``max_pages`` limita o trabalho de uma rodada;
+        o cursor devolvido já reflete as páginas consumidas, então a rodada
+        seguinte continua de onde parou (``has_more=True`` sinaliza isso).
+
+        Se o Dropbox invalidar o cursor (erro ``reset``), devolve
+        ``DropboxDelta(reset=True)`` em vez de estourar — o chamador rebootstrapa.
+        """
+        images: list[ImageMetadata] = []
+        ignorados = 0
+        atual = cursor
+        has_more = False
+
+        for _ in range(max_pages):
+            try:
+                result = self._client.files_list_folder_continue(atual)
+            except ApiError as exc:
+                if self._e_cursor_invalido(exc):
+                    _log.warning("dropbox_cursor_invalidado", motivo="reset")
+                    return DropboxDelta(cursor="", reset=True)
+                raise IntegrationError(
+                    "falha ao ler delta do Dropbox",
+                    details={"reason": str(exc)},
+                ) from exc
+            except (AuthError, DropboxException) as exc:
+                raise IntegrationError(
+                    "falha ao ler delta do Dropbox",
+                    details={"reason": str(exc)},
+                ) from exc
+
+            novas, ignoradas_pagina = self._materialize_delta(result.entries)
+            images.extend(novas)
+            ignorados += ignoradas_pagina
+            atual = result.cursor
+            if not result.has_more:
+                break
+        else:
+            has_more = True
+
+        return DropboxDelta(
+            cursor=atual, images=images, has_more=has_more, ignorados=ignorados
+        )
+
+    @staticmethod
+    def _e_cursor_invalido(exc: ApiError) -> bool:
+        """True quando o erro é o ``reset`` de ``list_folder/continue``."""
+        err = getattr(exc, "error", None)
+        is_reset = getattr(err, "is_reset", None)
+        return bool(callable(is_reset) and is_reset())
+
+    def _materialize_delta(self, entries: Iterable[object]) -> tuple[list[ImageMetadata], int]:
+        """Converte entradas do delta em ``ImageMetadata``; conta as ignoradas."""
+        out: list[ImageMetadata] = []
+        ignorados = 0
+        for entry in entries:
+            # Delta traz FolderMetadata e DeletedMetadata junto; só arquivo importa.
+            if not isinstance(entry, FileMetadata):
+                continue
+            if Path(entry.name).suffix.lower() not in _VALID_EXTENSIONS:
+                continue
+            path = entry.path_display or entry.path_lower
+            if self._em_pasta_de_sistema(path):
+                continue
+            try:
+                parsed = parse_filename(entry.name)
+            except ValueError:
+                ignorados += 1
+                continue
+            out.append(
+                ImageMetadata(
+                    dropbox_path=path,
+                    filename=entry.name,
+                    size_bytes=entry.size,
+                    parsed=parsed,
+                    server_modified=entry.server_modified,
+                )
+            )
+        return out, ignorados
+
+    def _em_pasta_de_sistema(self, path: str) -> bool:
+        """True se algum segmento sob a raiz tiver prefixo ``_``.
+
+        Bug conhecido em ``docs/avarias/fluxo-operacao.md`` §6.1: pastas como
+        ``_anotados``/``_gabaritos`` são artefato do próprio pipeline, não
+        checklist. A checagem cobre qualquer nível, não só o primeiro.
+        """
+        relativo = path
+        if self._root and path.lower().startswith(self._root.lower() + "/"):
+            relativo = path[len(self._root) + 1 :]
+        segmentos = relativo.strip("/").split("/")
+        return any(seg.startswith("_") for seg in segmentos[:-1])
 
     def upload_report(
         self,

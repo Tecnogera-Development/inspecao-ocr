@@ -43,6 +43,10 @@ ENV PYTHONUNBUFFERED=1
 ENV PYTHONPATH="/install/lib/python3.11/site-packages"
 ENV PATH="/install/bin:/usr/local/bin:/usr/local/sbin:/usr/sbin:/usr/bin:/sbin:/bin"
 
+# Driver ODBC da Microsoft (msodbcsql18) + unixODBC, exigidos pelo pyodbc para
+# falar com o SQL Server do Sisloc. Ver docs/exploracao/sql-server-driver.md.
+# curl/gnupg são temporários (só para registrar o repo da Microsoft) e saem no
+# mesmo RUN, para não engordar a camada. Custo líquido: ~8-11 MB.
 RUN apt-get update \
  && apt-get install -y --no-install-recommends \
         libpangoft2-1.0-0 \
@@ -52,6 +56,18 @@ RUN apt-get update \
         libffi8 \
         shared-mime-info \
         fonts-liberation \
+        curl ca-certificates gnupg \
+ && DEBIAN_VERSION="$(grep VERSION_ID /etc/os-release | cut -d '"' -f 2 | cut -d '.' -f 1)" \
+ && curl -sSL -o /tmp/packages-microsoft-prod.deb \
+        "https://packages.microsoft.com/config/debian/${DEBIAN_VERSION}/packages-microsoft-prod.deb" \
+ && dpkg -i /tmp/packages-microsoft-prod.deb \
+ && rm -f /tmp/packages-microsoft-prod.deb \
+ && apt-get update \
+ && ACCEPT_EULA=Y apt-get install -y --no-install-recommends \
+        msodbcsql18 \
+        unixodbc \
+        libgssapi-krb5-2 \
+ && apt-get purge -y --auto-remove curl gnupg \
  && rm -rf /var/lib/apt/lists/*
 
 RUN groupadd --system --gid ${APP_UID} ${APP_USER} \
@@ -77,6 +93,13 @@ CMD ["uvicorn", "app.main:app", "--host", "0.0.0.0", "--port", "8000"]
 FROM runtime AS dev
 
 USER root
+
+# sqlcmd: transforma "diagnosticar rota até o Sisloc" em uma linha, em vez de
+# ler stacktrace de Python. Só no estágio dev.
+RUN apt-get update \
+ && ACCEPT_EULA=Y apt-get install -y --no-install-recommends mssql-tools18 \
+ && rm -rf /var/lib/apt/lists/*
+ENV PATH="/opt/mssql-tools18/bin:/install/bin:/usr/local/bin:/usr/local/sbin:/usr/sbin:/usr/bin:/sbin:/bin"
 
 RUN pip install --prefix=/install --no-cache-dir --root-user-action=ignore \
         "pytest==8.3.4" \

@@ -86,30 +86,16 @@ def _fetch_references(dropbox: object, checklist_id: str | None) -> list[tuple[s
 
 
 def _get_llm_provider(settings: Settings) -> object:
-    """Instancia o provider LLM das avarias.
+    """Provider LLM das avarias — delega ao ponto único.
 
-    OpenAI é o provider padrão. Anthropic fica como fallback de segurança
-    (até a chave OpenAI ser configurada); Fake se não houver nenhuma chave.
+    A escolha (OpenAI → Anthropic → Fake) mora em
+    ``app.services.llm_provider.get_llm_provider``, junto do
+    ``Settings.llm_provider_efetivo`` que o guarda-corpo de produção consulta.
+    Este alias sobrevive porque o fluxo de avarias e os testes o referenciam.
     """
-    if settings.openai_api_key:
-        from app.services.llm_provider import OpenAIProvider  # noqa: PLC0415
+    from app.services.llm_provider import get_llm_provider  # noqa: PLC0415
 
-        return OpenAIProvider(
-            api_key=settings.openai_api_key.get_secret_value(),
-            model=settings.openai_model,
-        )
-    if settings.anthropic_api_key:
-        from app.services.llm_provider import AnthropicProvider  # noqa: PLC0415
-
-        _log.warning("llm_provider_fallback_anthropic", reason="openai_api_key_missing")
-        return AnthropicProvider(
-            api_key=settings.anthropic_api_key.get_secret_value(),
-            model=settings.anthropic_model,
-        )
-    from app.services.llm_provider import FakeLLMProvider  # noqa: PLC0415
-
-    _log.warning("llm_provider_fallback_fake", reason="no_llm_api_key")
-    return FakeLLMProvider()
+    return get_llm_provider(settings)
 
 
 async def process_event(ctx: dict[str, Any], event_id: str) -> None:

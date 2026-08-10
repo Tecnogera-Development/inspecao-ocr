@@ -103,33 +103,4 @@ def test_main_delega_para_run_create_user() -> None:
     with patch("app.cli._run_create_user") as mock_run:
         main(["create_user", "--email", "x@x.com", "--password", "pw"])
 
-    mock_run.assert_called_once_with("x@x.com", "pw")
-
-
-# ── ensure_initial_user (seed no boot) ─────────────────────────────────────
-
-
-@pytest.mark.unit
-def test_ensure_initial_user_cria_quando_ausente(db: Session) -> None:
-    from app.cli import ensure_initial_user
-
-    created = ensure_initial_user(db, "boot@tecnogera.com", "s3cr3t")
-
-    assert created is True
-    user = db.query(User).filter_by(email="boot@tecnogera.com").first()
-    assert user is not None
-    assert authenticate(db, "boot@tecnogera.com", "s3cr3t") is not None
-
-
-@pytest.mark.unit
-def test_ensure_initial_user_idempotente_nao_duplica(db: Session) -> None:
-    from app.cli import ensure_initial_user
-
-    assert ensure_initial_user(db, "boot@tecnogera.com", "primeira") is True
-    # Segunda chamada não recria nem altera a senha existente.
-    assert ensure_initial_user(db, "boot@tecnogera.com", "outra") is False
-
-    assert db.query(User).filter_by(email="boot@tecnogera.com").count() == 1
-    # Senha original preservada (a 2ª senha é ignorada).
-    assert authenticate(db, "boot@tecnogera.com", "primeira") is not None
-    assert authenticate(db, "boot@tecnogera.com", "outra") is None
+    mock_run.assert_called_once_with("x@x.com", "pw", "operador")

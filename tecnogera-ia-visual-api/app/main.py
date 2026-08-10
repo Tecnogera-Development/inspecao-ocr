@@ -18,7 +18,8 @@ from app import __version__
 from app.core.config import Settings, get_settings
 from app.core.exceptions import register_exception_handlers
 from app.core.logging import configure_logging, get_logger
-from app.routers import events, meta, pipeline, portal
+from app.core.ratelimit import new_login_rate_limit_pair, new_password_setup_rate_limit_pair
+from app.routers import checklists, events, meta, pipeline, portal, usuarios
 
 if TYPE_CHECKING:
     from collections.abc import AsyncGenerator
@@ -46,12 +47,13 @@ def _recovery_hook(cfg: Settings) -> None:
 
 
 def _seed_initial_user(cfg: Settings) -> None:
-    """Cria o usuário inicial do portal a partir das variáveis de ambiente.
+    """Cria o admin inicial do portal a partir das variáveis de ambiente.
 
     Idempotente e best-effort: se ``INITIAL_ADMIN_EMAIL`` /
     ``INITIAL_ADMIN_PASSWORD`` não estão definidos, ou o usuário já existe,
-    nada acontece. Falhas (ex.: banco indisponível) apenas logam — não
-    derrubam o boot da API.
+    nada acontece. O usuário nasce com papel ``admin``. Falhas (ex.: banco
+    indisponível) apenas logam — não derrubam o boot da API. Bootstrap
+    alternativo (sem env): ``python -m app.cli create_user --role admin``.
     """
     if cfg.initial_admin_email is None or cfg.initial_admin_password is None:
         return
@@ -139,21 +141,23 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         https_only=cfg.is_production,
     )
 
+    # Rate limit de /login (ticket usuarios-portal/03) — par por app.state,
+    # nao global: cada create_app() (cada teste, cada boot) tem seu proprio
+    # contador, sem vazar estado entre eles. Ver app/core/ratelimit.py para
+    # o porque do contador em memoria (nao Redis).
+    app.state.login_rate_limit = new_login_rate_limit_pair(cfg)
+    # Rate limit de /definir-senha (ticket usuarios-portal/02) — mesmo motor
+    # e mesma lógica de app.state por instância que o par de login acima.
+    app.state.password_setup_rate_limit = new_password_setup_rate_limit_pair(cfg)
+
     register_exception_handlers(app)
-
-    # Rate limiter do login (brute-force). Instância por app → sem estado
-    # global compartilhado entre testes.
-    from app.services.rate_limit import RateLimiter
-
-    app.state.login_rate_limiter = RateLimiter(
-        max_attempts=cfg.login_max_attempts,
-        window_seconds=cfg.login_window_seconds,
-    )
 
     app.include_router(meta.router)
     app.include_router(pipeline.router)
     app.include_router(portal.router)
+    app.include_router(usuarios.router)
     app.include_router(events.router)
+    app.include_router(checklists.router)
 
     log.info(
         "app_started",

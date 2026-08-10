@@ -64,7 +64,7 @@ obrigatórios definidos em equipment_profiles.yaml (IAVS-009).
 ### 3.{{item.indice}}. {{item.campo_legivel}} — `{{item.field_name}}`
 
 - **Foto presente:** {{item.foto_presente}}
-- **Qualidade da evidência:** {{item.qualidade.score}}/5 · {{item.qualidade.label}}
+- **Qualidade da evidência:** {{item.qualidade.label}}
 - **Classificação:** {{item.classificacao.resultado}} (confiança {{item.classificacao.confianca_pct}}%)
 - **Severidade da observação:** {{item.severidade}}
 
@@ -91,7 +91,6 @@ quando não houver fotos nesse intervalo de confiança.
 
 - **Melhor palpite:** {{inconc.melhor_palpite}}
 - **Confiança:** {{inconc.confianca_pct}}%
-- **Qualidade:** {{inconc.quality_score}}/1.0
 - **Observação:** {{inconc.observacao}}
 
 ![{{inconc.filename}}]({{inconc.foto_path}})

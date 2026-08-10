@@ -117,17 +117,43 @@ describe('AppShell', () => {
     })
   })
 
-  it('renders sidebar nav: Avarias (home) and Relatórios', async () => {
+  it('renders sidebar nav: só Checklists (Avarias e Relatórios saíram do menu)', async () => {
     mockFetch(200, { id: '1', email: 'op@tg.com' })
 
     renderWithShell()
 
     await waitFor(() => {
-      expect(screen.getByRole('link', { name: /avarias/i })).toHaveAttribute('href', '/avarias')
-      expect(screen.getByRole('link', { name: /relatórios/i })).toHaveAttribute(
+      expect(screen.getByRole('link', { name: /checklists/i })).toHaveAttribute(
         'href',
-        '/relatorios',
+        '/checklists',
       )
+    })
+
+    // As rotas continuam existindo e alcançáveis por URL — o que saiu foi a
+    // oferta no menu. Se voltarem para cá, que seja por decisão e não por
+    // alguém reintroduzir sem perceber.
+    expect(screen.queryByRole('link', { name: /avarias/i })).not.toBeInTheDocument()
+    expect(screen.queryByRole('link', { name: /relatórios/i })).not.toBeInTheDocument()
+  })
+
+  it('hides the Usuários nav item for role "operador"', async () => {
+    mockFetch(200, { id: '1', email: 'op@tg.com', role: 'operador' })
+
+    renderWithShell()
+
+    await waitFor(() => {
+      expect(screen.getByText('op@tg.com')).toBeInTheDocument()
+    })
+    expect(screen.queryByRole('link', { name: /usuários/i })).not.toBeInTheDocument()
+  })
+
+  it('shows the Usuários nav item for role "admin"', async () => {
+    mockFetch(200, { id: '1', email: 'admin@tg.com', role: 'admin' })
+
+    renderWithShell()
+
+    await waitFor(() => {
+      expect(screen.getByRole('link', { name: /usuários/i })).toHaveAttribute('href', '/usuarios')
     })
   })
 

@@ -25,10 +25,15 @@ from fastapi import (
     UploadFile,
 )
 from fastapi.responses import Response as FastAPIResponse
-from pydantic import BaseModel, ConfigDict
+from pydantic import BaseModel, ConfigDict, Field
 
 from app.core.config import get_settings
 from app.core.logging import get_logger
+from app.core.ratelimit import (
+    check_login_rate_limit,
+    record_login_failure,
+    record_login_success,
+)
 from app.db.session import get_db
 from app.models.pipeline import JobCreatedResponse, JobDetailResponse, PipelineJob
 from app.routers.pipeline import RunRequest, _run_pipeline_async
@@ -47,6 +52,7 @@ if TYPE_CHECKING:
 
     from app.core.config import Settings
     from app.models.user import User
+    from app.services.checklist_query import ChecklistDetalhe, ChecklistFiltros
 
 router = APIRouter(prefix="/api/v1/portal", tags=["portal"])
 _log = get_logger(__name__)
@@ -63,6 +69,7 @@ class LoginRequest(BaseModel):
 class UserResponse(BaseModel):
     id: UUID
     email: str
+    role: str
 
 
 class CsrfResponse(BaseModel):
@@ -113,7 +120,14 @@ def current_user(
     from app.models.user import User as UserModel
 
     user = db.get(UserModel, UUID(user_id))
-    if user is None or not user.is_active:
+    if user is None or not user.is_active or user.password_hash is None:
+        # password_hash nulo: usuário nunca definiu senha (não deveria ter
+        # sessão — authenticate() já recusa login neste estado, ver
+        # app/services/auth.py) OU um admin resetou a senha dele
+        # (app/routers/usuarios.py::resetar_senha), que zera password_hash de
+        # propósito para derrubar qualquer sessão em curso — mesma
+        # revalidação a cada request que já existia para is_active, estendida
+        # por este campo (ticket usuarios-portal/02, decisão sobre reset).
         raise HTTPException(status_code=401, detail="Sessão inválida")
     return user
 
@@ -135,25 +149,18 @@ def login(
     body: LoginRequest,
     request: Request,
     db: Session = Depends(get_db),
+    _rate_limit: None = Depends(check_login_rate_limit),
 ) -> UserResponse:
-    # Brute-force: janela deslizante por e-mail. Bloqueio temporário via 429.
-    limiter = getattr(request.app.state, "login_rate_limiter", None)
-    rl_key = body.email.strip().lower()
-    if limiter is not None and limiter.is_blocked(rl_key):
-        _log.warning("portal_login_rate_limited", email=rl_key)
-        raise HTTPException(
-            status_code=429,
-            detail="Muitas tentativas de login. Aguarde alguns minutos e tente novamente.",
-        )
-
     user = authenticate(db, body.email, body.password)
     if user is None:
-        if limiter is not None:
-            limiter.register_failure(rl_key)
+        # Falha soma nas duas dimensoes (identidade + origem) so aqui, depois
+        # de confirmado que a credencial esta errada -- um sucesso nunca passa
+        # por este caminho, entao login legitimo repetido nao esbarra no
+        # limite (ticket usuarios-portal/03, ver app/core/ratelimit.py).
+        record_login_failure(request, body.email)
         raise HTTPException(status_code=401, detail="Credenciais inválidas")
 
-    if limiter is not None:
-        limiter.reset(rl_key)
+    record_login_success(request, body.email)
 
     user.last_login_at = datetime.now(UTC)
     db.commit()
@@ -162,7 +169,7 @@ def login(
     request.session["csrf_token"] = secrets.token_hex(32)
 
     _log.info("portal_login", user_id=str(user.id))
-    return UserResponse(id=user.id, email=user.email)
+    return UserResponse(id=user.id, email=user.email, role=user.role)
 
 
 @router.post("/logout", status_code=204)
@@ -178,7 +185,7 @@ def logout(
 
 @router.get("/me", response_model=UserResponse)
 def me(user: User = Depends(current_user)) -> UserResponse:
-    return UserResponse(id=user.id, email=user.email)
+    return UserResponse(id=user.id, email=user.email, role=user.role)
 
 
 @router.get("/csrf", response_model=CsrfResponse)
@@ -381,6 +388,731 @@ def portal_run(
 
     _log.info("portal_run_job_created", job_id=str(job_id), checklist_id=body.checklist_id)
     return JobCreatedResponse(job_id=str(job_id), status="pending")
+
+
+# ── mvp-c54-c57/09: tela de checklists (BFF read-only) ───────────────────────
+
+
+class ChecklistItemResponse(BaseModel):
+    """Uma linha da lista de checklists."""
+
+    job_id: UUID
+    checklist_id: str
+    status: str
+    #: ``conforme`` | ``nao_conforme`` | ``nao_processavel`` | ``sem_analise``.
+    #: Os três primeiros são o veredito; o quarto é ausência dele.
+    indicador: str
+    indicador_rotulo: str
+    #: 1 = crítica … 4 = baixa. ``None`` quando não há achado.
+    severidade: int | None = None
+    severidade_rotulo: str | None = None
+    vista_determinante: str | None = None
+    vista_determinante_rotulo: str | None = None
+    #: Dimensão ORTOGONAL ao indicador. Constante ``pendente`` até o ticket 10.
+    validacao: str
+    patrimonio: str | None = None
+    cliente: str | None = None
+    filial: str | None = None
+    formulario: str | None = None
+    formulario_codigo: str | None = None
+    #: Data de conclusão no Sisloc — é a "DATA" da lista.
+    data: datetime | None = None
+    criado_em: datetime
+    n_linhas: int | None = None
+    multi_ativo: bool
+    vistas_recebidas: list[str]
+    vistas_esperadas: list[str]
+    vistas_ausentes: list[str]
+
+
+class ChecklistCountersResponse(BaseModel):
+    total: int
+    nao_conformes: int
+    nao_processaveis: int
+    conformes: int
+    sem_analise: int
+    a_validar: int
+
+
+class ChecklistFacetsResponse(BaseModel):
+    filiais: list[str]
+    formularios: list[str]
+
+
+class ChecklistListResponse(BaseModel):
+    total: int
+    limit: int
+    offset: int
+    contadores: ChecklistCountersResponse
+    facetas: ChecklistFacetsResponse
+    itens: list[ChecklistItemResponse]
+
+
+class ChecklistViewValidationResponse(BaseModel):
+    """Julgamento humano de UMA vista — ticket ``mvp-c54-c57/10``.
+
+    ``null`` no lugar deste bloco = vista pendente. ``tipo_erro`` nulo com o
+    bloco presente = confirmada; preenchido = o operador disse **o que** estava
+    errado, que é o insumo de calibragem do prompt.
+    """
+
+    estado: str
+    tipo_erro: str | None = None
+    tipo_erro_rotulo: str | None = None
+    classe: str | None = None
+    classe_rotulo: str | None = None
+    severidade: int | None = None
+    severidade_rotulo: str | None = None
+    observacao: str | None = None
+    por: str | None = None
+    em: datetime | None = None
+
+
+class ChecklistViewResponse(BaseModel):
+    """Uma moldura do grid — recebida ou apenas esperada."""
+
+    campo: str
+    rotulo: str
+    esperada: bool
+    recebida: bool
+    status: str | None = None
+    indicador: str | None = None
+    indicador_rotulo: str | None = None
+    motivo_nao_processavel: str | None = None
+    motivo_rotulo: str | None = None
+    classe: str | None = None
+    classe_rotulo: str | None = None
+    tipo_defeito: str | None = None
+    tipo_defeito_rotulo: str | None = None
+    severidade: int | None = None
+    severidade_rotulo: str | None = None
+    confianca: float | None = None
+    observacao: str | None = None
+    local: str | None = None
+    conteudo_observado: str | None = None
+    vista_confere: bool | None = None
+    foto_path: str | None = None
+    #: URL pronta do proxy autenticado (``/avarias/image``), já com o path escapado.
+    foto_url: str | None = None
+    achados: list[dict[str, Any]] = Field(default_factory=list)
+    erro: str | None = None
+    determinante: bool = False
+    #: ``False`` = vista sem veredito comparável (falhou, não despachada). Não
+    #: há julgamento a contestar, logo o botão "Corrigir" não se aplica.
+    corrigivel: bool = False
+    validacao: ChecklistViewValidationResponse | None = None
+
+
+class ValidationOptionResponse(BaseModel):
+    valor: str
+    rotulo: str
+
+
+class ChecklistValidationOptionsResponse(BaseModel):
+    """Listas do formulário de correção — o front não monta enum próprio."""
+
+    tipos_erro: list[ValidationOptionResponse]
+    classes: list[ValidationOptionResponse]
+    severidades: list[ValidationOptionResponse]
+
+
+class ChecklistEquipmentResponse(BaseModel):
+    codigo_checklist: str
+    patrimonio: str | None = None
+    cliente: str | None = None
+    contrato: str | None = None
+    projeto_bruto: str | None = None
+    projeto_padrao_reconhecido: bool = False
+    filial: str | None = None
+    formulario: str | None = None
+    formulario_codigo: str | None = None
+    data_conclusao: datetime | None = None
+    responsavel: str | None = None
+    numero_om: int | None = None
+    origem: str | None = None
+    status_sisloc: str | None = None
+    n_linhas: int | None = None
+    multi_ativo: bool = False
+    #: Preenchido só quando ``n_linhas > 1`` — o checklist cobre mais de um ativo.
+    aviso: str | None = None
+    lido_em: datetime | None = None
+
+
+class ChecklistDetailResponse(BaseModel):
+    job_id: UUID
+    checklist_id: str
+    status: str
+    indicador: str
+    indicador_rotulo: str
+    severidade: int | None = None
+    severidade_rotulo: str | None = None
+    confianca: float | None = None
+    vista_determinante: str | None = None
+    vista_determinante_rotulo: str | None = None
+    validacao: str
+    validado_por: str | None = None
+    validado_em: datetime | None = None
+    #: ``False`` quando nenhuma vista produziu veredito — não há o que confirmar.
+    validavel: bool = False
+    opcoes_validacao: ChecklistValidationOptionsResponse
+    criado_em: datetime
+    iniciado_em: datetime | None = None
+    finalizado_em: datetime | None = None
+    erro: str | None = None
+    equipamento: ChecklistEquipmentResponse
+    vistas: list[ChecklistViewResponse]
+    vistas_esperadas: list[str]
+    vistas_recebidas: list[str]
+    vistas_ausentes: list[str]
+    #: Explica um grid de 3 molduras. ``None`` quando as 4 são esperadas.
+    nota_vistas: str | None = None
+    achados: list[dict[str, Any]] = Field(default_factory=list)
+    custo_usd: float = 0.0
+    chamadas_llm: int = 0
+
+
+def _montar_filtros_checklist(
+    *,
+    indicador: str | None,
+    validacao: str | None,
+    filial: str | None,
+    formulario: str | None,
+    codigo_checklist: str | None,
+    data_de: date | None,
+    data_ate: date | None,
+    ordenar: str,
+    limit: int,
+    offset: int,
+) -> ChecklistFiltros:
+    """Valida e monta os filtros compartilhados por lista e export.
+
+    Mesma validação, mesmo 422 nos dois endpoints — só ``limit``/``offset``
+    divergem (o export ignora paginação, ver ``checklist_export``).
+    """
+    from app.services import checklist_query as cq  # noqa: PLC0415
+
+    if ordenar not in cq.ORDENACOES:
+        raise HTTPException(
+            status_code=422, detail=f"ordenar deve ser um de: {list(cq.ORDENACOES)}"
+        )
+    if validacao is not None and validacao not in cq.VALIDACOES:
+        raise HTTPException(
+            status_code=422, detail=f"validacao deve ser um de: {list(cq.VALIDACOES)}"
+        )
+
+    valores = tuple(v.strip() for v in indicador.split(",") if v.strip()) if indicador else ()
+    permitidos = (*cq.INDICADORES, cq.SEM_ANALISE)
+    invalidos = [v for v in valores if v not in permitidos]
+    if invalidos:
+        raise HTTPException(
+            status_code=422,
+            detail=f"indicador inválido: {invalidos}; use um de {list(permitidos)}",
+        )
+
+    return cq.ChecklistFiltros(
+        limit=limit,
+        offset=offset,
+        indicador=valores,
+        validacao=validacao,
+        filial=filial,
+        formulario=formulario,
+        codigo_checklist=codigo_checklist,
+        data_de=data_de,
+        data_ate=data_ate,
+        ordenar=ordenar,
+    )
+
+
+@router.get("/checklists", response_model=ChecklistListResponse)
+def portal_list_checklists(
+    db: Session = Depends(get_db),
+    _user: User = Depends(current_user),
+    limit: int = Query(default=50, ge=1, le=200),
+    offset: int = Query(default=0, ge=0),
+    indicador: str | None = Query(
+        default=None,
+        description="CSV: conforme, nao_conforme, nao_processavel, sem_analise",
+    ),
+    validacao: str | None = Query(default=None, description="pendente | confirmado | corrigido"),
+    filial: str | None = Query(default=None),
+    formulario: str | None = Query(default=None, description="Código F0NN ou trecho do texto"),
+    codigo_checklist: str | None = Query(default=None, description="codigo_checklist do Sisloc"),
+    data_de: date | None = Query(default=None, description="Data de conclusão — início"),
+    data_ate: date | None = Query(default=None, description="Data de conclusão — fim (inclusivo)"),
+    ordenar: str = Query(default="severidade", description="severidade (padrão) | recente"),
+) -> ChecklistListResponse:
+    """Fila de trabalho do operador — ticket ``mvp-c54-c57/09``.
+
+    Ordem padrão: pior indicador primeiro, severidade mais crítica dentro dele.
+    O default da tela é o trabalho a fazer, não o histórico — se a validação
+    humana não acontecer, o F1 do contrato fica sem fonte de dados.
+    """
+    from app.services import checklist_query as cq  # noqa: PLC0415
+
+    filtros = _montar_filtros_checklist(
+        indicador=indicador,
+        validacao=validacao,
+        filial=filial,
+        formulario=formulario,
+        codigo_checklist=codigo_checklist,
+        data_de=data_de,
+        data_ate=data_ate,
+        ordenar=ordenar,
+        limit=limit,
+        offset=offset,
+    )
+    pagina = cq.listar_checklists(db, filtros)
+
+    return ChecklistListResponse(
+        total=pagina.total,
+        limit=pagina.limit,
+        offset=pagina.offset,
+        contadores=ChecklistCountersResponse(
+            total=pagina.contadores.total,
+            nao_conformes=pagina.contadores.nao_conformes,
+            nao_processaveis=pagina.contadores.nao_processaveis,
+            conformes=pagina.contadores.conformes,
+            sem_analise=pagina.contadores.sem_analise,
+            a_validar=pagina.contadores.a_validar,
+        ),
+        facetas=ChecklistFacetsResponse(
+            filiais=list(pagina.facetas.filiais),
+            formularios=list(pagina.facetas.formularios),
+        ),
+        itens=[
+            ChecklistItemResponse(
+                job_id=item.job_id,
+                checklist_id=item.checklist_id,
+                status=item.status,
+                indicador=item.indicador,
+                indicador_rotulo=item.indicador_rotulo,
+                severidade=item.severidade,
+                severidade_rotulo=item.severidade_rotulo,
+                vista_determinante=item.vista_determinante,
+                vista_determinante_rotulo=item.vista_determinante_rotulo,
+                validacao=item.validacao,
+                patrimonio=item.patrimonio,
+                cliente=item.cliente,
+                filial=item.filial,
+                formulario=item.formulario,
+                formulario_codigo=item.formulario_codigo,
+                data=item.data,
+                criado_em=item.criado_em,
+                n_linhas=item.n_linhas,
+                multi_ativo=item.multi_ativo,
+                vistas_recebidas=list(item.vistas_recebidas),
+                vistas_esperadas=list(item.vistas_esperadas),
+                vistas_ausentes=list(item.vistas_ausentes),
+            )
+            for item in pagina.itens
+        ],
+    )
+
+
+def _opcoes_para_response(opcoes: Any) -> ChecklistValidationOptionsResponse:  # noqa: ANN401
+    return ChecklistValidationOptionsResponse(
+        tipos_erro=[
+            ValidationOptionResponse(valor=o.valor, rotulo=o.rotulo) for o in opcoes.tipos_erro
+        ],
+        classes=[
+            ValidationOptionResponse(valor=o.valor, rotulo=o.rotulo) for o in opcoes.classes
+        ],
+        severidades=[
+            ValidationOptionResponse(valor=o.valor, rotulo=o.rotulo) for o in opcoes.severidades
+        ],
+    )
+
+
+class ChecklistEvalResponse(BaseModel):
+    """P/R/F1 sobre os checklists validados — a métrica de aceite do contrato."""
+
+    #: Relatório do ``DamageEvaluator`` (mesmo formato de ``GET /events/eval``).
+    relatorio: dict[str, Any]
+    checklists_validados: int
+    vistas_validadas: int
+    #: Quantas correções de cada tipo — leitura de calibragem do prompt.
+    por_tipo_erro: dict[str, int] = Field(default_factory=dict)
+
+
+# ⚠️ ORDEM IMPORTA: esta rota precisa vir ANTES de `/checklists/{identificador}`,
+# senão o path param — que aceita `codigo_checklist`, não só UUID — engole
+# "eval" e o endpoint some. Há teste travando isso.
+@router.get("/checklists/eval", response_model=ChecklistEvalResponse)
+def portal_checklist_eval(
+    db: Session = Depends(get_db),
+    _user: User = Depends(current_user),
+) -> ChecklistEvalResponse:
+    """P/R/F1 por classe a partir da validação humana — ticket ``mvp-c54-c57/10``.
+
+    Sem gabarito não há métrica: devolve **422**, e não zeros. Um F1 de 0.0
+    apresentado como resultado seria indistinguível de um modelo péssimo.
+    """
+    from app.services import checklist_validation as cv  # noqa: PLC0415
+
+    resultado = cv.avaliar(db)
+    if resultado.vistas_validadas == 0:
+        raise HTTPException(
+            status_code=422,
+            detail="Nenhum checklist validado ainda — não há gabarito para medir",
+        )
+    return ChecklistEvalResponse(
+        relatorio=resultado.relatorio.model_dump(mode="json"),
+        checklists_validados=resultado.checklists_validados,
+        vistas_validadas=resultado.vistas_validadas,
+        por_tipo_erro=resultado.por_tipo_erro,
+    )
+
+
+_MEDIA_TYPE_XLSX = "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+
+
+# ⚠️ ORDEM IMPORTA: mesma razão da rota `eval` acima — precisa vir ANTES de
+# `/checklists/{identificador}`, senão "export.xlsx" é engolido pelo path
+# param.
+@router.get("/checklists/export.xlsx")
+def portal_checklists_export_xlsx(
+    db: Session = Depends(get_db),
+    _user: User = Depends(current_user),
+    indicador: str | None = Query(
+        default=None,
+        description="CSV: conforme, nao_conforme, nao_processavel, sem_analise",
+    ),
+    validacao: str | None = Query(default=None, description="pendente | confirmado | corrigido"),
+    filial: str | None = Query(default=None),
+    formulario: str | None = Query(default=None, description="Código F0NN ou trecho do texto"),
+    codigo_checklist: str | None = Query(default=None, description="codigo_checklist do Sisloc"),
+    data_de: date | None = Query(default=None, description="Data de conclusão — início"),
+    data_ate: date | None = Query(default=None, description="Data de conclusão — fim (inclusivo)"),
+    ordenar: str = Query(default="severidade", description="severidade (padrão) | recente"),
+) -> FastAPIResponse:
+    """``.xlsx`` da lista — ticket ``v1-entregavel/06``.
+
+    Mesmos filtros da lista, **sem** ``limit``/``offset``: exporta todo o
+    conjunto filtrado, não a página que a tela mostra. Mesma sessão, mesmo
+    401, mesmo 422 de valor fora do enum — é ``GET``, sem CSRF, igual à
+    lista.
+    """
+    from app.services import checklist_export as ce  # noqa: PLC0415
+
+    filtros = _montar_filtros_checklist(
+        indicador=indicador,
+        validacao=validacao,
+        filial=filial,
+        formulario=formulario,
+        codigo_checklist=codigo_checklist,
+        data_de=data_de,
+        data_ate=data_ate,
+        ordenar=ordenar,
+        limit=1,  # substituído por `checklist_export.gerar_planilha`
+        offset=0,
+    )
+    planilha = ce.gerar_planilha(db, filtros)
+    return FastAPIResponse(
+        content=planilha.getvalue(),
+        media_type=_MEDIA_TYPE_XLSX,
+        headers={"Content-Disposition": f'attachment; filename="{ce.nome_arquivo()}"'},
+    )
+
+
+def _montar_detalhe_response(detalhe: ChecklistDetalhe) -> ChecklistDetailResponse:
+    """Serializa ``ChecklistDetalhe`` -> ``ChecklistDetailResponse``.
+
+    ÚNICO lugar que monta esta resposta — usado pela rota de detalhe (JSON) e
+    pela rota de PDF (``/checklists/{identificador}/pdf``). O laudo em PDF
+    parte deste MESMO ``model_dump()``, nunca de uma segunda consulta: se o
+    JSON e o PDF discordassem sobre o veredito, o bug seria pior que qualquer
+    problema de layout.
+    """
+    eq = detalhe.equipamento
+    return ChecklistDetailResponse(
+        job_id=detalhe.job_id,
+        checklist_id=detalhe.checklist_id,
+        status=detalhe.status,
+        indicador=detalhe.indicador,
+        indicador_rotulo=detalhe.indicador_rotulo,
+        severidade=detalhe.severidade,
+        severidade_rotulo=detalhe.severidade_rotulo,
+        confianca=detalhe.confianca,
+        vista_determinante=detalhe.vista_determinante,
+        vista_determinante_rotulo=detalhe.vista_determinante_rotulo,
+        validacao=detalhe.validacao,
+        validado_por=detalhe.validado_por,
+        validado_em=detalhe.validado_em,
+        validavel=detalhe.validavel,
+        opcoes_validacao=_opcoes_para_response(detalhe.opcoes_validacao),
+        criado_em=detalhe.criado_em,
+        iniciado_em=detalhe.iniciado_em,
+        finalizado_em=detalhe.finalizado_em,
+        erro=detalhe.erro,
+        equipamento=ChecklistEquipmentResponse(
+            codigo_checklist=eq.codigo_checklist,
+            patrimonio=eq.patrimonio,
+            cliente=eq.cliente,
+            contrato=eq.contrato,
+            projeto_bruto=eq.projeto_bruto,
+            projeto_padrao_reconhecido=eq.projeto_padrao_reconhecido,
+            filial=eq.filial,
+            formulario=eq.formulario,
+            formulario_codigo=eq.formulario_codigo,
+            data_conclusao=eq.data_conclusao,
+            responsavel=eq.responsavel,
+            numero_om=eq.numero_om,
+            origem=eq.origem,
+            status_sisloc=eq.status_sisloc,
+            n_linhas=eq.n_linhas,
+            multi_ativo=eq.multi_ativo,
+            aviso=eq.aviso,
+            lido_em=eq.lido_em,
+        ),
+        vistas=[
+            ChecklistViewResponse(
+                campo=v.campo,
+                rotulo=v.rotulo,
+                esperada=v.esperada,
+                recebida=v.recebida,
+                status=v.status,
+                indicador=v.indicador,
+                indicador_rotulo=v.indicador_rotulo,
+                motivo_nao_processavel=v.motivo_nao_processavel,
+                motivo_rotulo=v.motivo_rotulo,
+                classe=v.classe,
+                classe_rotulo=v.classe_rotulo,
+                tipo_defeito=v.tipo_defeito,
+                tipo_defeito_rotulo=v.tipo_defeito_rotulo,
+                severidade=v.severidade,
+                severidade_rotulo=v.severidade_rotulo,
+                confianca=v.confianca,
+                observacao=v.observacao,
+                local=v.local,
+                conteudo_observado=v.conteudo_observado,
+                vista_confere=v.vista_confere,
+                foto_path=v.foto_path,
+                foto_url=v.foto_url,
+                achados=list(v.achados),
+                erro=v.erro,
+                determinante=v.determinante,
+                corrigivel=v.corrigivel,
+                validacao=(
+                    ChecklistViewValidationResponse(
+                        estado=v.validacao.estado,
+                        tipo_erro=v.validacao.tipo_erro,
+                        tipo_erro_rotulo=v.validacao.tipo_erro_rotulo,
+                        classe=v.validacao.classe,
+                        classe_rotulo=v.validacao.classe_rotulo,
+                        severidade=v.validacao.severidade,
+                        severidade_rotulo=v.validacao.severidade_rotulo,
+                        observacao=v.validacao.observacao,
+                        por=v.validacao.por,
+                        em=v.validacao.em,
+                    )
+                    if v.validacao is not None
+                    else None
+                ),
+            )
+            for v in detalhe.vistas
+        ],
+        vistas_esperadas=list(detalhe.vistas_esperadas),
+        vistas_recebidas=list(detalhe.vistas_recebidas),
+        vistas_ausentes=list(detalhe.vistas_ausentes),
+        nota_vistas=detalhe.nota_vistas,
+        achados=list(detalhe.achados),
+        custo_usd=detalhe.custo_usd,
+        chamadas_llm=detalhe.chamadas_llm,
+    )
+
+
+@router.get("/checklists/{identificador}", response_model=ChecklistDetailResponse)
+def portal_checklist_detail(
+    identificador: str,
+    db: Session = Depends(get_db),
+    _user: User = Depends(current_user),
+) -> ChecklistDetailResponse:
+    """Relatório de um checklist — aceita ``job_id`` (UUID) ou ``codigo_checklist``."""
+    from app.services import checklist_query as cq  # noqa: PLC0415
+
+    detalhe = cq.obter_checklist(db, identificador)
+    if detalhe is None:
+        raise HTTPException(status_code=404, detail="Checklist não encontrado")
+    return _montar_detalhe_response(detalhe)
+
+
+# ⚠️ Path de DOIS segmentos (`{identificador}/pdf`): não conflita com a rota
+# de UM segmento acima (`/checklists/{identificador}`) nem com `eval` /
+# `export.xlsx`, que também são de um segmento só — o cuidado de ordem que
+# aquelas duas precisaram (comentário acima, linha ~716) não se aplica aqui
+# porque a forma do path já desambigua. Mesmo assim a rota fica DEPOIS do
+# detalhe, agrupada com `confirmar`/`corrigir`: mesmo padrão de leitura.
+@router.get("/checklists/{identificador}/pdf")
+def portal_checklist_pdf(
+    identificador: str,
+    db: Session = Depends(get_db),
+    _user: User = Depends(current_user),
+    settings: Settings = Depends(get_settings),
+) -> FastAPIResponse:
+    """Laudo em PDF — ticket ``v1-entregavel/05``. Mesma sessão, mesmo 404. ``GET``, sem CSRF.
+
+    As fotos são baixadas do Dropbox no servidor e embutidas como data-URI;
+    falha em uma foto não derruba o documento (moldura "foto indisponível").
+    """
+    from app.services import checklist_query as cq  # noqa: PLC0415
+    from app.services import laudo_pdf as lp  # noqa: PLC0415
+    from app.services.dropbox import DropboxService  # noqa: PLC0415
+
+    detalhe = cq.obter_checklist(db, identificador)
+    if detalhe is None:
+        raise HTTPException(status_code=404, detail="Checklist não encontrado")
+
+    try:
+        lp.garantir_pronto(detalhe)
+    except lp.LaudoIndisponivelError as exc:
+        raise HTTPException(status_code=409, detail=str(exc)) from exc
+
+    laudo = _montar_detalhe_response(detalhe).model_dump(mode="json")
+    pdf_bytes = lp.gerar_pdf(laudo, dropbox=DropboxService(settings))
+    nome = lp.nome_arquivo(laudo)
+
+    return FastAPIResponse(
+        content=pdf_bytes,
+        media_type="application/pdf",
+        headers={"Content-Disposition": f'attachment; filename="{nome}"'},
+    )
+
+
+# ── HITL: o operador fecha o julgamento — ticket mvp-c54-c57/10 ──────────────
+#
+# São rotas de ESCRITA: exigem sessão **e** CSRF, ao contrário das duas de
+# leitura acima. O gabarito por vista alimenta o F1 do contrato (Anexo I §8).
+
+
+class ChecklistValidationResponse(BaseModel):
+    """Estado da validação depois da operação — o front recarrega o detalhe."""
+
+    job_id: UUID
+    checklist_id: str
+    validacao: str
+    validado_por: str | None = None
+    validado_em: datetime | None = None
+    vistas_validadas: int
+    vistas_validaveis: int
+    vistas_corrigidas: int
+
+
+class ChecklistCorrecaoBody(BaseModel):
+    """Correção de UMA vista. O tipo do erro é obrigatório de propósito.
+
+    "Corrigido" sem dizer o quê só serve para contagem; com o tipo, vira insumo
+    de calibragem do prompt.
+    """
+
+    campo: str
+    tipo_erro: str
+    #: Obrigatória em ``classe_errada``.
+    classe: str | None = None
+    #: Obrigatória em ``severidade_errada``; 1 (crítica) a 4 (baixa).
+    severidade: int | None = None
+    observacao: str | None = None
+
+
+def _resolver_job_do_portal(db: Session, identificador: str) -> PipelineJob:
+    """Mesma resolução da tela: ``job_id`` (UUID) ou ``codigo_checklist``.
+
+    Reusa `checklist_query` para que confirmar **o que se está vendo** não possa
+    resolver para outro job que a tela nunca mostrou.
+    """
+    from app.services.checklist_query import resolver_job  # noqa: PLC0415
+
+    job = resolver_job(db, identificador)
+    if job is None:
+        raise HTTPException(status_code=404, detail="Checklist não encontrado")
+    return job
+
+
+def _resposta_validacao(job: PipelineJob, resultado: Any) -> ChecklistValidationResponse:  # noqa: ANN401
+    return ChecklistValidationResponse(
+        job_id=job.id,
+        checklist_id=job.checklist_id,
+        validacao=resultado.validacao,
+        validado_por=resultado.validado_por,
+        validado_em=resultado.validado_em,
+        vistas_validadas=resultado.vistas_validadas,
+        vistas_validaveis=resultado.vistas_validaveis,
+        vistas_corrigidas=resultado.vistas_corrigidas,
+    )
+
+
+@router.post("/checklists/{identificador}/confirmar", response_model=ChecklistValidationResponse)
+def portal_checklist_confirmar(
+    identificador: str,
+    db: Session = Depends(get_db),
+    _csrf: None = Depends(verify_csrf),
+    user: User = Depends(current_user),
+) -> ChecklistValidationResponse:
+    """Um clique confirma o checklist inteiro — ticket ``mvp-c54-c57/10``.
+
+    Sem corpo: confirmar é dizer "sim" ao que está na tela. Se validar for caro,
+    não acontece, e o F1 do contrato fica sem fonte.
+
+    **Idempotente**: o gabarito mora na linha da vista, única por
+    ``(job_id, campo)``. Confirmar duas vezes reescreve os mesmos valores — não
+    duplica registro nem infla a métrica.
+    """
+    from app.services import checklist_validation as cv  # noqa: PLC0415
+
+    job = _resolver_job_do_portal(db, identificador)
+    try:
+        resultado = cv.confirmar(db, job, por=user.email)
+    except cv.ValidacaoInvalidaError as exc:
+        raise HTTPException(status_code=422, detail=str(exc)) from exc
+
+    _log.info(
+        "portal_checklist_confirmado",
+        job_id=str(job.id),
+        checklist_id=job.checklist_id,
+        por=user.email,
+    )
+    return _resposta_validacao(job, resultado)
+
+
+@router.post("/checklists/{identificador}/corrigir", response_model=ChecklistValidationResponse)
+def portal_checklist_corrigir(
+    identificador: str,
+    body: ChecklistCorrecaoBody,
+    db: Session = Depends(get_db),
+    _csrf: None = Depends(verify_csrf),
+    user: User = Depends(current_user),
+) -> ChecklistValidationResponse:
+    """Corrige UMA vista, dizendo o que estava errado.
+
+    A correção é por vista porque os laudos são por vista. As demais vistas do
+    checklist são confirmadas junto — o operador leu o relatório inteiro antes
+    de contestar uma parte dele (ver ``checklist_validation``).
+    """
+    from app.services import checklist_validation as cv  # noqa: PLC0415
+
+    job = _resolver_job_do_portal(db, identificador)
+    try:
+        resultado = cv.corrigir(
+            db,
+            job,
+            campo=body.campo,
+            tipo_erro=body.tipo_erro,
+            classe=body.classe,
+            severidade=body.severidade,
+            observacao=body.observacao,
+            por=user.email,
+        )
+    except cv.ValidacaoInvalidaError as exc:
+        raise HTTPException(status_code=422, detail=str(exc)) from exc
+
+    _log.info(
+        "portal_checklist_corrigido",
+        job_id=str(job.id),
+        checklist_id=job.checklist_id,
+        campo=body.campo,
+        tipo_erro=body.tipo_erro,
+        por=user.email,
+    )
+    return _resposta_validacao(job, resultado)
 
 
 # ── IAVS-068: Visualizador de avarias (read-only) ────────────────────────────
