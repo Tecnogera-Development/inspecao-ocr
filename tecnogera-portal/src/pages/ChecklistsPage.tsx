@@ -241,8 +241,8 @@ export function ChecklistsPage() {
           />
         </div>
         <p className="mt-2 text-xs text-slate-500">
-          Contadores respeitam filial, formulário, período e ID — e ignoram indicador e validação,
-          para o volume de trabalho não sumir por causa de um filtro.
+          Contadores respeitam filial, formulário, período e ID. Ignoram indicador e validação, para
+          o volume de trabalho não sumir por causa de um filtro.
         </p>
       </div>
 
@@ -402,7 +402,7 @@ export function ChecklistsPage() {
           <p className="text-lg font-medium text-slate-600">Nenhum checklist nesta seleção</p>
           {filters.validacao === 'pendente' ? (
             <p className="mt-2 text-sm text-slate-500">
-              Nada a validar por aqui — a fila de trabalho está vazia nesta seleção.
+              Nada a validar por aqui. A fila de trabalho está vazia nesta seleção.
             </p>
           ) : (
             filters.validacao !== VALIDACAO_TODAS && (
@@ -470,7 +470,7 @@ export function ChecklistsPage() {
                         {item.multi_ativo && (
                           <span
                             data-testid={`multi-ativo-${item.checklist_id}`}
-                            title={`Este checklist cobre ${item.n_linhas ?? 2} ativos — o laudo é de um deles`}
+                            title={`Este checklist cobre ${item.n_linhas ?? 2} ativos; o laudo é de um deles`}
                             className="ml-2 whitespace-nowrap rounded bg-amber-100 px-1.5 py-0.5 text-[11px] font-medium text-amber-900"
                           >
                             {item.n_linhas ?? 2} ativos

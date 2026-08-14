@@ -1,7 +1,7 @@
-import { apiClient } from '@/api/client'
+import { apiClient, clearCsrfToken } from '@/api/client'
 import { useQueryClient } from '@tanstack/react-query'
 import { useState } from 'react'
-import { useLocation, useNavigate } from 'react-router-dom'
+import { Link, useLocation, useNavigate } from 'react-router-dom'
 
 export function LoginPage() {
   const navigate = useNavigate()
@@ -27,7 +27,13 @@ export function LoginPage() {
       })
       if (response.status === 401) {
         setError('Email ou senha inválidos')
+      } else if (response.status === 429) {
+        setError('Muitas tentativas. Aguarde alguns minutos e tente novamente.')
       } else {
+        // O backend gera um csrf_token novo a cada login. Sem limpar aqui, o
+        // cache do módulo guarda o token da sessão anterior e a primeira ação
+        // de escrita depois de reentrar falha com "CSRF token inválido".
+        clearCsrfToken()
         // Descarta o cache de auth (['me'] pode ter um 401 fresco de antes do login,
         // dentro do staleTime) para o AppShell refetchar com a sessão nova.
         queryClient.removeQueries({ queryKey: ['me'] })
@@ -102,6 +108,18 @@ export function LoginPage() {
             Entrar
           </button>
         </form>
+        {/*
+         * Conta nova nasce SEM senha: o usuário recebe um código do
+         * administrador e define a senha aqui. Sem este link, ele tenta o
+         * login, erra cinco vezes e cai no bloqueio por tentativas, sem
+         * nunca ter tido uma senha para acertar.
+         */}
+        <p className="text-center text-sm text-slate-600">
+          Primeiro acesso ou recebeu um código?{' '}
+          <Link to="/definir-senha" className="font-medium text-brand-primary underline">
+            Definir senha
+          </Link>
+        </p>
       </div>
     </main>
   )

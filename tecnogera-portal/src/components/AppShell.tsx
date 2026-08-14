@@ -1,4 +1,4 @@
-import { apiClient } from '@/api/client'
+import { apiClient, clearCsrfToken } from '@/api/client'
 import { useQuery, useQueryClient } from '@tanstack/react-query'
 import { useState } from 'react'
 import { NavLink, Navigate, Outlet, useNavigate } from 'react-router-dom'
@@ -68,6 +68,9 @@ export function AppShell() {
 
   async function handleLogout() {
     await apiClient.POST('/api/v1/portal/logout', {})
+    // A sessão morreu no servidor; o token em cache não vale mais nada e, se
+    // ficar, contamina o próximo login feito sem recarregar a página.
+    clearCsrfToken()
     queryClient.clear()
     navigate('/login')
   }

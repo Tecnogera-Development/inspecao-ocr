@@ -170,7 +170,7 @@ export function UsuariosPage() {
             </button>
           </div>
           <p className="mt-2 text-xs text-slate-500">
-            Depois de criado, o código de uso único aparece uma vez — copie antes de fechar.
+            Depois de criado, o código de uso único aparece uma vez. Copie antes de fechar.
           </p>
           {criar.isError && (
             <p data-testid="novo-usuario-erro" className="mt-2 text-sm text-red-700">
@@ -415,7 +415,7 @@ function CodigoUnicoPanel({
     >
       <div className="w-full max-w-md rounded-lg bg-white p-6 shadow-xl">
         <h2 id="codigo-titulo" className="text-lg font-semibold text-slate-900">
-          Código de acesso — {info.email}
+          Código de acesso: {info.email}
         </h2>
         <p id="codigo-aviso" className="mt-2 text-sm text-slate-600">
           Repasse este código ao usuário fora do portal (chat, telefone). Ele{' '}
