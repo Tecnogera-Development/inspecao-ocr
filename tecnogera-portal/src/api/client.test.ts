@@ -77,4 +77,58 @@ describe('apiClient', () => {
     expect(listener).toHaveBeenCalledOnce()
     window.removeEventListener('api:unauthorized', listener)
   })
+  it('repete a mutation uma vez quando o token está velho, sem devolver erro à tela', async () => {
+    // O backend gera um csrf_token novo a cada login. Se o cache do módulo
+    // ficou com o token da sessão anterior, a primeira escrita leva 403 — era
+    // exatamente o "CSRF token inválido ou ausente" que aparecia no portal.
+    const chamadas: string[] = []
+    const fetchMock = vi.fn(async (input: Request | string) => {
+      const url = input instanceof Request ? input.url : String(input)
+      const metodo = input instanceof Request ? input.method : 'GET'
+      chamadas.push(`${metodo} ${new URL(url).pathname}`)
+
+      if (url.includes('/portal/csrf')) {
+        return new Response(JSON.stringify({ token: `tok-${chamadas.length}` }), {
+          status: 200,
+          headers: { 'Content-Type': 'application/json' },
+        })
+      }
+      const jaTentou = chamadas.filter((c) => c.startsWith('POST')).length > 1
+      return new Response(
+        JSON.stringify(jaTentou ? { ok: true } : { detail: 'CSRF token inválido ou ausente' }),
+        { status: jaTentou ? 200 : 403, headers: { 'Content-Type': 'application/json' } },
+      )
+    })
+    vi.stubGlobal('fetch', fetchMock)
+
+    const { response } = await apiClient.POST('/api/v1/portal/logout')
+
+    expect(response.status).toBe(200)
+    expect(chamadas.filter((c) => c.includes('/portal/csrf'))).toHaveLength(2)
+    expect(chamadas.filter((c) => c.startsWith('POST'))).toHaveLength(2)
+  })
+
+  it('não repete quando o 403 é de permissão, e não de CSRF', async () => {
+    // Operador batendo numa rota de admin. Repetir só geraria uma segunda
+    // negativa idêntica e mascararia a causa real.
+    const chamadas: string[] = []
+    const fetchMock = vi.fn(async (input: Request | string) => {
+      const url = input instanceof Request ? input.url : String(input)
+      const metodo = input instanceof Request ? input.method : 'GET'
+      chamadas.push(`${metodo} ${new URL(url).pathname}`)
+      const corpo = url.includes('/portal/csrf')
+        ? { token: 'tok-ok' }
+        : { detail: 'Requer papel admin' }
+      return new Response(JSON.stringify(corpo), {
+        status: url.includes('/portal/csrf') ? 200 : 403,
+        headers: { 'Content-Type': 'application/json' },
+      })
+    })
+    vi.stubGlobal('fetch', fetchMock)
+
+    const { response } = await apiClient.POST('/api/v1/portal/logout')
+
+    expect(response.status).toBe(403)
+    expect(chamadas.filter((c) => c.startsWith('POST'))).toHaveLength(1)
+  })
 })

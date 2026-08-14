@@ -27,26 +27,59 @@ export function clearCsrfToken(): void {
 
 const MUTATING_METHODS = new Set(['POST', 'PUT', 'PATCH', 'DELETE'])
 
+// Cópia intacta da requisição, guardada ANTES do envio: depois que o fetch
+// consome o corpo, `request.clone()` não é mais possível. É o que permite
+// repetir a mutation com o token novo sem pedir ao usuário para clicar de novo.
+const copiaParaRetentativa = new WeakMap<Request, Request>()
+
 const csrfMiddleware: Middleware = {
   async onRequest({ request }) {
     if (MUTATING_METHODS.has(request.method.toUpperCase())) {
       const token = await ensureCsrfToken()
       if (token) request.headers.set('X-CSRF-Token', token)
+      copiaParaRetentativa.set(request, request.clone())
     }
     return request
   },
 }
 
+/** Um 403 pode ser CSRF ou falta de permissão. Só o primeiro se resolve repetindo. */
+async function ehFalhaDeCsrf(response: Response): Promise<boolean> {
+  try {
+    const corpo = (await response.clone().json()) as { detail?: unknown }
+    return typeof corpo.detail === 'string' && corpo.detail.toUpperCase().includes('CSRF')
+  } catch {
+    return false
+  }
+}
+
 const unauthorizedMiddleware: Middleware = {
-  onResponse({ response }) {
+  async onResponse({ request, response }) {
+    const copia = copiaParaRetentativa.get(request)
+    copiaParaRetentativa.delete(request)
+
     if (response.status === 401) {
       clearCsrfToken()
       window.dispatchEvent(new Event('api:unauthorized'))
+      return response
     }
-    // CSRF rotacionado/expirado: invalida cache para re-buscar na próxima tentativa
-    if (response.status === 403) {
+
+    if (response.status === 403 && copia && (await ehFalhaDeCsrf(response))) {
+      // O backend rotaciona o token a cada login, e o cache deste módulo pode
+      // estar velho — depois de reentrar sem recarregar a página, ou porque
+      // outra aba logou e girou o token. Buscar o novo e repetir UMA vez, em
+      // vez de devolver "CSRF token inválido" para o usuário, que só precisaria
+      // clicar de novo. A retentativa vai direto no fetch, fora do middleware,
+      // então não há risco de laço.
       clearCsrfToken()
+      const token = await ensureCsrfToken()
+      if (token) {
+        copia.headers.set('X-CSRF-Token', token)
+        return await globalThis.fetch(copia)
+      }
     }
+
+    if (response.status === 403) clearCsrfToken()
     return response
   },
 }

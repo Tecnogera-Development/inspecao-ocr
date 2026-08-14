@@ -163,7 +163,7 @@ export function ChecklistDetailPage() {
     } catch (erro) {
       setErroExportacaoPdf(
         erro instanceof Error && erro.message === 'HTTP 409'
-          ? 'Este checklist ainda não tem laudo processado — não há o que exportar.'
+          ? 'Este checklist ainda não tem laudo processado. Não há o que exportar.'
           : 'Não foi possível gerar o PDF. Tente novamente.',
       )
     } finally {
@@ -221,7 +221,7 @@ export function ChecklistDetailPage() {
         </button>
         {exportandoPdf && (
           <span className="text-xs text-slate-500">
-            Baixando as fotos do Dropbox para montar o laudo — pode levar alguns segundos.
+            Baixando as fotos do Dropbox para montar o laudo. Pode levar alguns segundos.
           </span>
         )}
         {erroExportacaoPdf && (
@@ -267,12 +267,12 @@ export function ChecklistDetailPage() {
               </p>
             ) : semAnalise ? (
               <p className="mt-2 text-sm text-slate-600">
-                O job foi criado e ainda não produziu laudo — não há veredito sobre este
-                equipamento. Situação do processamento: {detalhe.status}.
+                O job foi criado e ainda não produziu laudo. Não há veredito sobre este equipamento.
+                Situação do processamento: {detalhe.status}.
               </p>
             ) : (
               <p className="mt-2 text-sm text-slate-600">
-                Nenhuma vista puxou o veredito — todas as vistas julgadas estão conformes.
+                Nenhuma vista puxou o veredito: todas as vistas julgadas estão conformes.
               </p>
             )}
             {detalhe.erro && (
@@ -347,7 +347,7 @@ export function ChecklistDetailPage() {
         {achados.length === 0 ? (
           <p className="text-sm text-slate-500">
             {semAnalise
-              ? 'Sem laudo — o job ainda não foi processado.'
+              ? 'Sem laudo. O job ainda não foi processado.'
               : 'Nenhum achado registrado neste checklist.'}
           </p>
         ) : (
@@ -362,7 +362,7 @@ export function ChecklistDetailPage() {
                   className="border-l-4 border-red-500 pl-3"
                 >
                   <p className="text-sm font-medium text-slate-800">
-                    {a.vista && <span className="text-slate-500">{a.vista} — </span>}
+                    {a.vista && <span className="text-slate-500">{a.vista}: </span>}
                     <span title={a.tipo_defeito ?? undefined}>{descreverAchado(a)}</span>
                     {a.severidade != null && (
                       <span className="ml-2 text-slate-600">severidade {a.severidade}</span>
@@ -421,13 +421,13 @@ function VistaCard({ vista }: { vista: ChecklistViewResponse }) {
           <button
             type="button"
             onClick={() => setAmpliada(true)}
-            aria-label={`Ampliar foto — ${vista.rotulo}`}
+            aria-label={`Ampliar foto: ${vista.rotulo}`}
             data-testid={`ampliar-${vista.campo}`}
             className="block w-full cursor-zoom-in"
           >
             <img
               src={vista.foto_url}
-              alt={`${vista.rotulo} — checklist`}
+              alt={`${vista.rotulo}, foto do checklist`}
               loading="lazy"
               decoding="async"
               className="max-h-64 w-full object-contain"
@@ -489,7 +489,7 @@ function VistaCard({ vista }: { vista: ChecklistViewResponse }) {
 
         {forcaPrevisto && (
           <p className="text-xs text-slate-500">
-            Foto fora do previsto para este formulário — o que chegou foi analisado assim mesmo.
+            Foto fora do previsto para este formulário. O que chegou foi analisado assim mesmo.
           </p>
         )}
 
@@ -507,7 +507,7 @@ function VistaCard({ vista }: { vista: ChecklistViewResponse }) {
           >
             <p className="font-medium">
               {vista.validacao.tipo_erro
-                ? `Corrigido pelo operador — ${vista.validacao.tipo_erro_rotulo}`
+                ? `Corrigido pelo operador: ${vista.validacao.tipo_erro_rotulo}`
                 : 'Confirmado pelo operador'}
             </p>
             {vista.validacao.tipo_erro && (
@@ -532,7 +532,7 @@ function VistaCard({ vista }: { vista: ChecklistViewResponse }) {
       {ampliada && vista.foto_url && (
         <Lightbox
           src={vista.foto_url}
-          alt={`${vista.rotulo} — checklist`}
+          alt={`${vista.rotulo}, foto do checklist`}
           onClose={() => setAmpliada(false)}
         />
       )}
@@ -596,7 +596,7 @@ function BlocoValidacao({ id, detalhe }: { id: string; detalhe: ChecklistDetailR
     >
       {!validavel ? (
         <p data-testid="validacao-indisponivel" className="text-sm text-slate-600">
-          Este checklist ainda não tem laudo para validar — nenhuma vista produziu veredito.
+          Este checklist ainda não tem laudo para validar. Nenhuma vista produziu veredito.
         </p>
       ) : (
         <>

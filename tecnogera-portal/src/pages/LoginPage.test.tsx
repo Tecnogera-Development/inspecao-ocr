@@ -62,6 +62,16 @@ afterEach(() => {
 })
 
 describe('LoginPage', () => {
+  it('oferece o caminho de primeiro acesso, que é onde o usuário sem senha precisa ir', async () => {
+    // Conta nova nasce sem senha. Sem este link o usuário tenta o login,
+    // erra cinco vezes e cai no bloqueio por tentativas, sem nunca ter tido
+    // uma senha para acertar.
+    renderLoginPage()
+
+    const link = await screen.findByRole('link', { name: /definir senha/i })
+    expect(link).toHaveAttribute('href', '/definir-senha')
+  })
+
   it('renders email input, password input, and Entrar button', () => {
     renderLoginPage()
     expect(screen.getByLabelText(/email/i)).toBeInTheDocument()
